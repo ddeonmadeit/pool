@@ -1,4 +1,8 @@
+# Regenerable intermediates (full pool geometry; rebuilt from data/cache/)
+data/pools_raw.json
+data/pools_addressed.json
 data/cache/
 data/*.log
+
 __pycache__/
 *.pyc
