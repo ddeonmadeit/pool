@@ -116,7 +116,7 @@ h1 em{font-style:normal;color:var(--signal-glow);
   box-shadow:inset 0 1px 0 rgba(255,248,235,.07),inset 0 0 0 1px rgba(0,0,0,.35),
              0 2px 8px rgba(0,0,0,.4);
 }
-input[type=search],select{
+input[type=search],input[type=number],select{
   font-family:Inter,sans-serif;font-size:.78rem;color:var(--cream-100);
   background:linear-gradient(180deg,#1d1b18,#211f1b);border:none;border-radius:8px;
   padding:9px 11px;
@@ -124,10 +124,20 @@ input[type=search],select{
              0 1px 0 rgba(255,248,235,.03);
 }
 input[type=search]{min-width:230px;flex:1 1 240px;}
-select{cursor:pointer;}
+input[type=number]{width:64px;flex:none;font-variant-numeric:tabular-nums;}
+input[type=number]::-webkit-inner-spin-button{opacity:.5;}
+select{cursor:pointer;max-width:180px;overflow:hidden;text-overflow:ellipsis;
+  white-space:nowrap;}
 option{background:#211f1b;color:var(--cream-100);}
 .ctl-label{font-family:"IBM Plex Mono",monospace;font-size:.56rem;font-weight:600;
   letter-spacing:.15em;text-transform:uppercase;color:var(--cream-500);}
+.ctl-group{display:inline-flex;align-items:center;flex-wrap:wrap;gap:6px;
+  max-width:100%;padding:3px 4px 3px 9px;border-radius:8px;background:rgba(0,0,0,.18);}
+.ctl-group .ctl-label{padding-right:1px;}
+.ctl-sep{width:1px;align-self:stretch;background:rgba(255,248,235,.06);margin:0 2px;}
+#near-label{font-family:"IBM Plex Mono",monospace;font-size:.6rem;font-weight:600;
+  color:var(--signal-glow);text-shadow:0 0 7px rgba(255,120,45,.4);
+  white-space:nowrap;margin-left:2px;}
 .tally{font-family:"IBM Plex Mono",monospace;font-size:.62rem;font-weight:600;
   letter-spacing:.1em;text-transform:uppercase;color:var(--signal-glow);
   text-shadow:0 0 7px rgba(255,120,45,.45);margin-left:auto;}
@@ -238,6 +248,8 @@ footer a{color:var(--signal-glow);text-decoration:none;}
   .shell{padding-bottom:60px;}
   .readout{text-align:left;}
   .scroller{height:70vh;}
+  .ctl-group{width:100%;}
+  select{max-width:150px;}
 }
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important;}}
 """

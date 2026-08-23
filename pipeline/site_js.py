@@ -59,13 +59,67 @@ JS = r"""
   }
 
   // ── filtering ──────────────────────────────────────────────────
+  var CENTROIDS = JSON.parse(document.getElementById("centroid-data").textContent);
   var q = document.getElementById("q"), fSub = document.getElementById("f-sub"),
       fEra = document.getElementById("f-era"), fSt = document.getElementById("f-st"),
-      fCon = document.getElementById("f-con");
+      fCon = document.getElementById("f-con"),
+      fAgeMin = document.getElementById("f-age-min"), fAgeMax = document.getElementById("f-age-max"),
+      fCenter = document.getElementById("f-center"), fRadius = document.getElementById("f-radius"),
+      geoBtn = document.getElementById("geo");
+
+  // Radius search state. centerPos is null until a suburb or "Use my location"
+  // gives us somewhere to measure from; distances are only meaningful then.
+  var centerPos = null, centerLabel = "";
+
+  function haversineKm(lat1, lon1, lat2, lon2) {
+    var R = 6371, toRad = Math.PI / 180;
+    var dLat = (lat2 - lat1) * toRad, dLon = (lon2 - lon1) * toRad;
+    var a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos(lat1 * toRad) * Math.cos(lat2 * toRad) *
+      Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  }
+
+  function distKm(i) {
+    if (!centerPos) return null;
+    var d = DATA[i];
+    return haversineKm(centerPos[0], centerPos[1], d[LAT], d[LON]);
+  }
+
+  function setCenter(pos, label) {
+    centerPos = pos;
+    centerLabel = label;
+    document.getElementById("near-label").textContent = pos ? "Near " + label : "";
+  }
+
+  fCenter.addEventListener("change", function () {
+    var name = fCenter.value;
+    if (!name) { setCenter(null, ""); rebuild(); return; }
+    var c = CENTROIDS[name];
+    if (c) setCenter(c, name);
+    rebuild();
+  });
+
+  geoBtn.addEventListener("click", function () {
+    if (!navigator.geolocation) { flash("Location not available in this browser"); return; }
+    geoBtn.textContent = "Locating…";
+    navigator.geolocation.getCurrentPosition(function (pos) {
+      geoBtn.textContent = "Use my location";
+      fCenter.value = "";
+      setCenter([pos.coords.latitude, pos.coords.longitude], "your location");
+      rebuild();
+    }, function () {
+      geoBtn.textContent = "Use my location";
+      flash("Location request denied or unavailable");
+    }, { timeout: 8000 });
+  });
 
   function rebuild() {
     var term = q.value.trim().toLowerCase();
     var sub = fSub.value, era = fEra.value, st = fSt.value, con = fCon.value;
+    var ageMin = fAgeMin.value ? parseInt(fAgeMin.value, 10) : null;
+    var ageMax = fAgeMax.value ? parseInt(fAgeMax.value, 10) : null;
+    var radius = (centerPos && fRadius.value) ? parseFloat(fRadius.value) : null;
     var out = [];
     for (var i = 0; i < DATA.length; i++) {
       var d = DATA[i];
@@ -73,6 +127,9 @@ JS = r"""
       if (era && String(d[YR]) !== era) continue;
       if (st && statusOf(i) !== st) continue;
       if (con && !d[CON]) continue;
+      if (ageMin != null && (NOW - d[YR]) < ageMin) continue;
+      if (ageMax != null && (NOW - d[YR]) > ageMax) continue;
+      if (radius != null && distKm(i) > radius) continue;
       if (term) {
         var hay = (d[A] + " " + d[S] + " " + (d[PC] || "")).toLowerCase();
         if (hay.indexOf(term) === -1) continue;
@@ -84,6 +141,11 @@ JS = r"""
     else if (sortKey === "age") out.sort(function (a, b) { return (DATA[a][YR] - DATA[b][YR]) * dir; });
     else if (sortKey === "lot") out.sort(function (a, b) { return (DATA[a][LOT] - DATA[b][LOT]) * dir; });
     else if (sortKey === "area") out.sort(function (a, b) { return (DATA[a][AR] - DATA[b][AR]) * dir; });
+    else if (sortKey === "distance") out.sort(function (a, b) {
+      var da = distKm(a), db = distKm(b);
+      if (da == null && db == null) return 0;
+      if (da == null) return 1; if (db == null) return -1;
+      return (da - db) * dir; });
     else if (sortKey === "suburb") out.sort(function (a, b) {
       return DATA[a][S] < DATA[b][S] ? -dir : DATA[a][S] > DATA[b][S] ? dir : 0; });
     view = out;
@@ -115,6 +177,8 @@ JS = r"""
       var approx = d[MQ] === 1 ? '<span class="approx" title="Matched to the nearest parcel, not one containing the pool — check the map link">~</span>' : "";
       var meta = esc(d[S]) + (d[PC] ? " · " + d[PC] : "");
       if (d[CON]) meta += " · " + d[CON];
+      var dk = distKm(i);
+      var distStr = dk == null ? "—" : (dk < 10 ? dk.toFixed(1) : Math.round(dk)) + " km";
       html += '<tr class="lead" data-i="' + i + '" data-s="' + stt + '">' +
         '<td><span class="addr">' + esc(d[A]) + approx + multi + '</span>' +
         '<span class="meta">' + meta + '</span></td>' +
@@ -122,6 +186,7 @@ JS = r"""
         '<span class="ago">' + age + '+ yr</span></td>' +
         '<td class="num">' + d[AR] + '</td>' +
         '<td class="num">' + d[LOT] + '</td>' +
+        '<td class="num dist">' + distStr + '</td>' +
         '<td class="score">' + d[SC] + '</td>' +
         '<td class="num">' + (d[CF] / 100).toFixed(2) + '</td>' +
         '<td><button type="button" class="st">' + LABEL[stt] + '</button></td>' +
@@ -183,12 +248,14 @@ JS = r"""
     noteT = setTimeout(function () { persist(); flash("Saved"); }, 450);
   });
 
-  [q, fSub, fEra, fSt, fCon].forEach(function (el) {
+  [q, fSub, fEra, fSt, fCon, fAgeMin, fAgeMax, fRadius].forEach(function (el) {
     el.addEventListener("input", rebuild);
     el.addEventListener("change", rebuild);
   });
   document.getElementById("reset").addEventListener("click", function () {
     q.value = ""; fSub.value = ""; fEra.value = ""; fSt.value = ""; fCon.value = "";
+    fAgeMin.value = ""; fAgeMax.value = ""; fRadius.value = ""; fCenter.value = "";
+    setCenter(null, "");
     rebuild();
   });
 
@@ -196,7 +263,7 @@ JS = r"""
     th.addEventListener("click", function () {
       var k = th.dataset.sort;
       if (sortKey === k) sortDir = -sortDir;
-      else { sortKey = k; sortDir = (k === "suburb") ? 1 : -1; }
+      else { sortKey = k; sortDir = (k === "suburb" || k === "distance") ? 1 : -1; }
       document.querySelectorAll("th .ind").forEach(function (s) { s.textContent = ""; });
       var ind = th.querySelector(".ind");
       if (ind) ind.textContent = sortDir < 0 ? "▼" : "▲";

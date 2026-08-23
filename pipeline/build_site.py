@@ -70,6 +70,25 @@ def pack(leads):
     return out
 
 
+def suburb_centroids(leads):
+    """Mean lat/lon per suburb, for the radius-search center picker.
+
+    A plain arithmetic mean is fine at Sydney's scale and latitude - the error
+    against a proper spherical centroid is a few metres, far under the width
+    of a suburb.
+    """
+    sums = {}
+    for p in leads:
+        s = p.get("suburb")
+        lat, lon = p.get("lat"), p.get("lon")
+        if not s or lat is None or lon is None:
+            continue
+        acc = sums.setdefault(s, [0.0, 0.0, 0])
+        acc[0] += lat
+        acc[1] += lon
+        acc[2] += 1
+    return {s: [round(x / n, 5), round(y / n, 5)] for s, (x, y, n) in sums.items()}
+
 def write_csvs(leads, outdir):
     cols = ["address", "suburb", "postcode", "council", "earliest_confirmed_year",
             "min_age_years", "lead_score", "age_confidence", "address_match",
@@ -102,6 +121,7 @@ def build(leads, with_downloads=False):
     subs = sorted({p.get("suburb") for p in leads if p.get("suburb")})
     subopts = "".join('<option value="%s">%s</option>' % (html.escape(s), html.escape(s))
                       for s in subs)
+    centroid_payload = json.dumps(suburb_centroids(leads), separators=(",", ":"))
     era_counts = Counter(p.get("earliest_confirmed_year") for p in leads)
     legend = "".join(
         '<span><span class="pill e%s">%s</span> <b>%s</b></span>'
@@ -157,6 +177,20 @@ Heaviest in __COUNCILS__. Click a status key as you work the list &mdash; it sav
   <select id="f-sub" aria-label="Suburb"><option value="">All</option>__SUBOPTS__</select>
   <span class="ctl-label">Built</span>
   <select id="f-era" aria-label="Era"><option value="">Any</option>__ERAOPTS__</select>
+  <div class="ctl-group">
+    <span class="ctl-label">Age yrs</span>
+    <input type="number" id="f-age-min" min="0" max="120" placeholder="min" aria-label="Minimum pool age in years">
+    <span aria-hidden="true">&ndash;</span>
+    <input type="number" id="f-age-max" min="0" max="120" placeholder="max" aria-label="Maximum pool age in years">
+  </div>
+  <div class="ctl-group">
+    <span class="ctl-label">Near</span>
+    <select id="f-center" aria-label="Center suburb for radius search"><option value="">Choose&hellip;</option>__SUBOPTS__</select>
+    <span class="ctl-label">Within</span>
+    <input type="number" id="f-radius" min="1" max="100" placeholder="km" aria-label="Radius in kilometres">
+    <button type="button" class="key" id="geo">Use my location</button>
+    <span id="near-label"></span>
+  </div>
   <span class="ctl-label">Status</span>
   <select id="f-st" aria-label="Status">
     <option value="">All</option><option value="new">Not contacted</option>
@@ -181,22 +215,23 @@ Heaviest in __COUNCILS__. Click a status key as you work the list &mdash; it sav
   <div class="scroller" id="scroller">
     <table>
       <colgroup>
-        <col style="width:31%"><col style="width:13%"><col style="width:7%">
-        <col style="width:8%"><col style="width:6%"><col style="width:6%">
-        <col style="width:12%"><col style="width:13%"><col style="width:4%">
+        <col style="width:27%"><col style="width:12%"><col style="width:6%">
+        <col style="width:7%"><col style="width:7%"><col style="width:6%">
+        <col style="width:6%"><col style="width:12%"><col style="width:13%"><col style="width:4%">
       </colgroup>
       <thead><tr>
         <th class="sortable" data-sort="suburb">Address<span class="ind"></span></th>
         <th class="sortable" data-sort="age">Pool built<span class="ind"></span></th>
         <th class="sortable num" data-sort="area">Pool m&sup2;<span class="ind"></span></th>
         <th class="sortable num" data-sort="lot">Block m&sup2;<span class="ind"></span></th>
+        <th class="sortable num" data-sort="distance">Dist<span class="ind"></span></th>
         <th class="sortable num" data-sort="score">Score<span class="ind">&#9660;</span></th>
         <th class="num">Conf</th>
         <th>Status</th><th>Note</th><th></th>
       </tr></thead>
-      <tbody id="pads-top"><tr id="pad-top" style="height:0"><td colspan="9"></td></tr></tbody>
+      <tbody id="pads-top"><tr id="pad-top" style="height:0"><td colspan="10"></td></tr></tbody>
       <tbody id="tb"></tbody>
-      <tbody id="pads-bot"><tr id="pad-bot" style="height:0"><td colspan="9"></td></tr></tbody>
+      <tbody id="pads-bot"><tr id="pad-bot" style="height:0"><td colspan="10"></td></tr></tbody>
     </table>
     <div class="empty" id="empty" hidden>No leads match these filters.</div>
   </div>
@@ -210,6 +245,10 @@ Heaviest in __COUNCILS__. Click a status key as you work the list &mdash; it sav
   and imagery confidence (18%). <b>Conf</b> is how clean the imagery read was, 0&ndash;1;
   below 0.45, check the map link before posting. <b>~</b> means the address came from the
   nearest parcel rather than one containing the pool.<br>
+  <b>Age yrs</b> filters on exact years since the pool's earliest confirmed capture, finer
+  than the Built buckets. <b>Near / Within</b> centres a radius search on a suburb or your
+  current location and filters (and can sort) by distance; the Dist column reads
+  &mdash; until a centre is set.<br>
   __DOWNLOADS__<b>Tracking</b> saves in this browser only. Use <b>Back up</b> now and then, and
   <b>Restore</b> to move it to another machine.<br>
   Data: OpenStreetMap contributors (ODbL) &middot; NSW Spatial Services, Department of
@@ -218,9 +257,11 @@ Heaviest in __COUNCILS__. Click a status key as you work the list &mdash; it sav
 </div>
 
 <script type="application/json" id="lead-data">__PAYLOAD__</script>
+<script type="application/json" id="centroid-data">__CENTROIDS__</script>
 <script>__JS__</script>
 """.replace("__CSS__", CSS).replace("__JS__", JS) \
    .replace("__PAYLOAD__", payload) \
+   .replace("__CENTROIDS__", centroid_payload) \
    .replace("__SUBOPTS__", subopts).replace("__ERAOPTS__", eraopts) \
    .replace("__LEGEND__", legend) \
    .replace("__COUNCILS__", top_councils) \
