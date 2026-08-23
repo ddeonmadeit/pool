@@ -38,6 +38,15 @@ CUR_CACHE = os.path.join(HERE, "..", "data", "cache", "tiles", "current")
 CUR_SERVICE = ("https://maps.six.nsw.gov.au/arcgis/rest/services"
                "/public/NSW_Imagery/MapServer")
 
+# Current imagery is 7 cm at source. Served at z18 it is dithered badly enough
+# to corrupt a colour average (mean adjacent-pixel difference 22, against 7.9 at
+# z20), so tone is read at z20 where a typical pool is ~65x32 px.
+CUR_ZOOM = 20
+# OSM pool outlines are traced from recent imagery, so they should already sit
+# on the current capture. A tight window stops the search wandering onto a
+# neighbour's pool; historical captures still get the wide one.
+CUR_SEARCH_M = 3.0
+
 
 def current_tile(z, x, y):
     d = os.path.join(CUR_CACHE, str(z), str(x))
@@ -62,6 +71,26 @@ def current_tile(z, x, y):
     with open(p, "wb") as f:
         f.write(raw)
     return np.asarray(im)
+
+
+def sample_water_mask(arr):
+    """Stricter than the dating detector's mask, for tone sampling.
+
+    Dating only had to answer "was there water here", so a permissive mask was
+    right. Here the mask decides which pixels get averaged, and it also drives
+    the alignment search - so dark bluish shadow passing as water lets the
+    search settle on vegetation beside the pool and then average it. Requiring
+    real brightness, and a blue lift proportional to it, keeps shadow out.
+    """
+    a = arr.astype(np.int16)
+    r, g, b = a[..., 0], a[..., 1], a[..., 2]
+    mx = a.max(axis=-1)
+    return (b > r + 12) & (g >= r) & (mx > 70) & (mx < 252) & ((b - r) * 10 > mx)
+
+
+def _erode(mask, k):
+    """Shrink a mask by k pixels: dilate its complement and invert."""
+    return ~_dilate(~mask, k)
 
 
 def _dilate(mask, k):
@@ -113,7 +142,7 @@ def _mosaic(getter, ring, z, margin_px):
     return canvas, have, poly
 
 
-def probe(getter, ring, z=IMAGERY_ZOOM, search_m=10.0):
+def probe(getter, ring, z=IMAGERY_ZOOM, search_m=10.0, min_frac=0.30):
     """Measure the pool interior and its surround in one imagery source.
 
     Returns a dict of tone statistics, or None where that source has no
@@ -153,7 +182,7 @@ def probe(getter, ring, z=IMAGERY_ZOOM, search_m=10.0):
     if winhave.mean() < 0.5:
         return None
 
-    wm = av.water_mask(win) & winhave
+    wm = sample_water_mask(win) & winhave
     oy0, ox0 = miny - wy0, minx - wx0
 
     # Find the placement of the footprint with the most water under it.
@@ -175,9 +204,15 @@ def probe(getter, ring, z=IMAGERY_ZOOM, search_m=10.0):
     sel = np.zeros(win.shape[:2], dtype=bool)
     sel[oy0 + dy:oy0 + dy + bh, ox0 + dx:ox0 + dx + bw] = fmask
 
-    # Only average pixels that actually read as water: coping and diving boards
-    # inside the traced polygon would otherwise wash out the tone.
-    wet = sel & wm
+    # Read tone from the middle of the footprint rather than from whatever a
+    # water mask accepts. Masking by "looks like water" quietly excluded exactly
+    # the pools that matter: a dark navy resurfaced pool fails a water test
+    # built around pale turquoise, so the renovated pools came back unmeasurable
+    # instead of renovated. Eroding away the outer ~0.8 m drops coping and edge
+    # pixels, and a median over what is left ignores ladders, cleaners and
+    # sun glint without assuming the water's colour in advance.
+    erode_px = max(1, int(round(0.8 / res)))
+    wet = _erode(sel, erode_px)
     if wet.sum() < 4:
         wet = sel
 
@@ -191,11 +226,28 @@ def probe(getter, ring, z=IMAGERY_ZOOM, search_m=10.0):
     # Median of the whole frame: a per-capture reference for exposure, season
     # and colour balance, so those cancel when comparing two epochs.
     ref = a[winhave]
+    # A match pinned to the edge of the search window means the search never
+    # settled - it ran out of room while still improving, so the footprint is
+    # probably sitting on something that is not this pool.
+    at_edge = (abs(dy) >= search_px) or (abs(dx) >= search_px)
+    # Alignment quality only. Whether it is a pool at all is judged from the
+    # colour that comes back, so a dark pool is not written off as unmeasurable.
+    reliable = not at_edge
+
+    wr = float(np.median(r[wet]))
+    wg = float(np.median(g[wet]))
+    wb = float(np.median(b[wet]))
+
     out = {
+        "_debug": {"win": win, "sel": sel, "wet": wet, "annulus": annulus,
+                   "wx0": wx0, "wy0": wy0},
+        "reliable": bool(reliable),
+        "at_edge": bool(at_edge),
+        "is_water": bool(looks_like_water(wr, wg, wb)),
         "water_frac": round(frac, 3),
         "offset_m": round(math.hypot(dy, dx) * res, 1),
         "n_wet": int(wet.sum()),
-        "wr": float(r[wet].mean()), "wg": float(g[wet].mean()), "wb": float(b[wet].mean()),
+        "wr": wr, "wg": wg, "wb": wb,
         "mr": float(np.median(ref[..., 0])), "mg": float(np.median(ref[..., 1])),
         "mb": float(np.median(ref[..., 2])),
     }
@@ -207,6 +259,17 @@ def probe(getter, ring, z=IMAGERY_ZOOM, search_m=10.0):
             "s_std": float(a[annulus].std()),
         })
     return out
+
+
+def looks_like_water(rr, gg, bb):
+    """Is this median colour a pool surface, pale or dark?
+
+    Pool water always carries blue above red, whatever the finish. Vegetation
+    leads with green over blue, and paving, decking and roofs sit neutral or
+    red-led. That separates a dark navy pool from a shaded lawn without
+    presuming the interior is pale.
+    """
+    return (bb - rr) >= 8 and bb >= gg - 4
 
 
 def turquoise_index(rr, gg, bb):
@@ -255,62 +318,67 @@ def _went_dark(old_ti, new_ti):
 
 
 def classify(p98, p05, pnow):
-    """Work out when this pool was last visibly worked on.
+    """Judge the pool's finish today, and date the change where history allows.
 
-    Pool interiors last roughly 15-25 years, so a pool resurfaced before 2005 is
-    due again and still a lead - what disqualifies a property is work done
-    *recently*. Bracketing the tone change across three captures says which case
-    applies, rather than lumping every past renovation together.
+    Current tone decides the finish, because the current capture is 7 cm and
+    read at native zoom, while the historical captures are half-metre scans that
+    are noisier and need aligning. History is then used only to say *when* a
+    modern finish went in - which matters, because interiors last 15-25 years,
+    so a pool resurfaced before 2005 is due again and stays a lead, while one
+    done since 2005 does not.
 
-    The decision rests on interior tone alone. Surround change was tried as a
-    second signal and dropped: two captures of an untouched yard differ by ~50
-    RGB units from season, sun angle and sensor, and even after referencing each
-    frame against its own median the 2005-to-current gap stays systematically
-    wider than the 1998-to-2005 gap because current imagery is far sharper. A
-    single threshold across both would flag recent work on capture differences.
-    The measurement is still recorded for inspection, but it does not classify.
-
-    The known limitation of a tone-only rule: a resurfacing that went back to a
-    pale finish looks like an untouched pool. This under-detects renovation, it
-    does not invent it, so the list stays honest about what it can prove.
+    Known limitation: a resurfacing that went back to a pale finish still reads
+    as original. This under-detects renovation rather than inventing it.
     """
     out = {}
-    ti98 = turquoise_index(p98["wr"], p98["wg"], p98["wb"]) if p98 else None
-    ti05 = turquoise_index(p05["wr"], p05["wg"], p05["wb"]) if p05 else None
-    tinow = turquoise_index(pnow["wr"], pnow["wg"], pnow["wb"]) if pnow else None
+    def ti(p):
+        if not p:
+            return None
+        return turquoise_index(p["wr"], p["wg"], p["wb"])
+
+    ti98, ti05, tinow = ti(p98), ti(p05), ti(pnow)
     out["ti_1998"], out["ti_2005"], out["ti_now"] = ti98, ti05, tinow
-    out["surround_delta_early"] = _surround_delta(p98, p05)
     out["surround_delta_late"] = _surround_delta(p05, pnow)
 
-    if pnow is None:
+    if pnow is None or not pnow.get("reliable"):
         out["state"] = "unknown"
         return out
 
     out["water_frac_now"] = pnow["water_frac"]
-    if pnow["water_frac"] < GONE_FRAC:
-        # No open water at the footprint now: filled in, decked over, drained,
-        # under a solid cover, or buried in tree shadow. The cause cannot be
-        # told apart from above, but in every case a pool cannot be confirmed,
-        # so the property must not be mailed a pool-renovation offer.
+    out["is_water_now"] = pnow["is_water"]
+
+    if not pnow["is_water"]:
+        # The footprint no longer reads as a water surface: filled in, decked
+        # over, drained, or replaced by something else. No pool to renovate.
         out["state"] = "not_visible"
         return out
 
-    if tinow is not None and tinow >= GREEN_MIN:
-        # Green water. Nobody maintaining a pool lets it go green, so this is
-        # the strongest available signal of deferred maintenance.
-        out["state"] = "neglected"
+    if tinow is None:
+        out["state"] = "unknown"
         return out
 
-    if _went_dark(ti05, tinow) or (ti05 is None and _went_dark(ti98, tinow)):
-        out["state"] = "renovated_recent"     # since 2005; may be very recent
-    elif _went_dark(ti98, ti05):
-        out["state"] = "renovated_pre2005"    # done long ago, due again
-    elif tinow is not None and tinow < NAVY_MAX:
-        out["state"] = "dark_throughout"      # always dark; cannot tell
-    elif tinow is None:
-        out["state"] = "unknown"
+    if tinow >= GREEN_MIN:
+        out["state"] = "neglected"          # green water: deferred maintenance
+        return out
+
+    if tinow >= ORIGINAL_MIN:
+        out["state"] = "untouched"          # pale turquoise: original interior
+        return out
+
+    if tinow >= NAVY_MAX:
+        out["state"] = "mid_tone"           # between the two; cannot call it
+        return out
+
+    # Modern dark finish today. Date it against whichever history is available:
+    # a pale reading in an old capture brackets when the work was done.
+    was_pale_2005 = ti05 is not None and ti05 >= ORIGINAL_MIN and p05 and p05.get("reliable")
+    was_pale_1998 = ti98 is not None and ti98 >= ORIGINAL_MIN and p98 and p98.get("reliable")
+    if was_pale_2005:
+        out["state"] = "renovated_recent"   # still pale in 2005, dark now
+    elif was_pale_1998:
+        out["state"] = "renovated_pre2005"  # pale in 1998, already dark by 2005
     else:
-        out["state"] = "untouched"            # pale finish, no tone transition
+        out["state"] = "dark_throughout"    # dark as far back as we can see
     return out
 
 
@@ -319,8 +387,9 @@ STATE_SCORE = {
     "neglected": 1.00,
     "untouched": 0.90,
     "renovated_pre2005": 0.55,
-    "dark_throughout": 0.35,
-    "unknown": 0.30,
+    "mid_tone": 0.40,
+    "dark_throughout": 0.30,
+    "unknown": 0.25,
     "renovated_recent": 0.05,
     "not_visible": 0.0,
 }
