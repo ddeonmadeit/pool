@@ -156,22 +156,54 @@ to the clipboard as JSON and **Restore** reads it back, which is how you move
 tracking to another machine. **Copy tracked CSV** puts everything you have
 touched on the clipboard for a spreadsheet.
 
-### Hosting
+### Hosting on GitHub Pages
 
-`.github/workflows/pages.yml` deploys `docs/` to GitHub Pages on every push,
-and runs `configure-pages` with `enablement: true` so the first successful run
-switches Pages on by itself. The repository is public, so Pages is free and
-carries no advertising.
+The site is plain static files, so Pages serves it directly - no build step and
+no workflow. The repository is public, so Pages is free and carries no
+advertising.
 
-To put it on a custom domain, buy the domain, add a file `docs/CNAME` whose only
-content is the bare hostname, and point DNS at GitHub:
+Turn it on once, in the repository's **Settings -> Pages**:
+
+| Field | Value |
+|---|---|
+| Source | Deploy from a branch |
+| Branch | `claude/sydney-pools-outreach-tracker-dnj6uj` |
+| Folder | `/docs` |
+
+Save, wait a minute, and the site is live at
+`https://ddeonmadeit.github.io/pool/`. Every later push to that branch
+redeploys it automatically.
+
+This one switch has to be thrown by hand. A workflow using
+`actions/configure-pages` with `enablement: true` was tried first and GitHub
+refused it - creating a Pages site needs repository-admin scope, which the
+Actions `GITHUB_TOKEN` does not carry ("Resource not accessible by
+integration"). Nothing in CI can grant itself that.
+
+**For a URL closer to `sdlfinder.com`,** rename the repository to `sdlfinder`
+(Settings -> General -> Repository name). The site then serves from
+`https://ddeonmadeit.github.io/sdlfinder/`, which is the closest free address
+available. Renaming keeps history and redirects the old URL; update the git
+remote afterwards with
+`git remote set-url origin https://github.com/ddeonmadeit/sdlfinder`.
+
+### Custom domain
+
+`sdlfinder.com` has no DNS records, so it appears unregistered - but a domain
+is the one part of this that costs money (roughly AUD 15-25 a year from any
+registrar). GitHub Pages then serves it free, with a free certificate and no
+advertising.
+
+After buying it: create a file `docs/CNAME` whose only content is the bare
+hostname, push, then point DNS at GitHub:
 
 ```
-A     @   185.199.108.153
-A     @   185.199.109.153
-A     @   185.199.110.153
-A     @   185.199.111.153
-CNAME www  <user>.github.io.
+A     @    185.199.108.153
+A     @    185.199.109.153
+A     @    185.199.110.153
+A     @    185.199.111.153
+CNAME www  ddeonmadeit.github.io.
 ```
 
-Then tick *Enforce HTTPS* under Settings -> Pages once the certificate is issued.
+Set the domain under Settings -> Pages, and tick *Enforce HTTPS* once the
+certificate is issued (usually within the hour).
