@@ -159,7 +159,7 @@ def build(leads, with_downloads=False):
                        for k in [next((kk for kk, vv in CONDITION_CODE.items()
                                        if vv == code), None)]
                        if cond_counts.get(k))
-    prime = sum(cond_counts.get(k, 0) for k in ("neglected", "untouched"))
+    prime = sum(cond_counts.get(k, 0) for k in ("neglected", "original_finish"))
     era_counts = Counter(p.get("earliest_confirmed_year") for p in leads)
     legend = "".join(
         '<span><span class="pill e%s">%s</span> <b>%s</b></span>'
@@ -193,12 +193,14 @@ def build(leads, with_downloads=False):
 </div>
 
 <div class="eyebrow"><span class="dash"></span>Sydney &middot; pool renovation prospects</div>
-<h1>Sydney pools over 20 years old that <em>nobody has renovated</em>.</h1>
+<h1>Sydney pools over 20 years old with <em>no sign of renovation</em>.</h1>
 <p class="lede">__N__ properties whose pool shows open water in NSW government aerial
-imagery from 2005 or earlier, cross-checked against current imagery to weed out the
-ones already redone. __PRIME__ are prime prospects &mdash; still on an original pale
-interior, or sitting green. Heaviest in __COUNCILS__. Click a status key as you work
-the list; it saves in this browser.</p>
+imagery from 2005 or earlier, each one re-checked against current imagery to see
+whether it has since been redone. <strong>__PRIME__</strong> still read as an original
+pale interior or are sitting green &mdash; those are the prospects, and the list opens
+filtered to them. The rest are shown for completeness: about half read as a modern dark
+finish. Heaviest in __COUNCILS__. Click a status key as you work the list; it saves in
+this browser.</p>
 
 <div class="stats">
   <div class="stat n"><div class="v" id="k-new">0</div><div class="k">Not contacted</div></div>

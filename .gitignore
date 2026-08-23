@@ -7,7 +7,3 @@ data/*.log
 
 __pycache__/
 *.pyc
-
-# Appended to continuously while the renovation pass is in flight;
-# re-tracked and committed once it completes.
-data/pool_reno.jsonl
