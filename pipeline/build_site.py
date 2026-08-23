@@ -23,6 +23,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 DATA = os.path.join(HERE, "..", "data")
 SITE = os.path.join(HERE, "..", "site")
 DOCS = os.path.join(HERE, "..", "docs")
+ROOT = os.path.join(HERE, "..")
 
 ERA = [(1978, "pre-1979"), (1986, "1979-86"), (1991, "1987-91"),
        (1998, "1992-98"), (2005, "1999-2005")]
@@ -288,16 +289,24 @@ def main():
     with open(os.path.join(SITE, "index.html"), "w") as f:
         f.write(build(leads, with_downloads=False))
 
-    os.makedirs(DOCS, exist_ok=True)
     docs_page = build(leads, with_downloads=True)
-    with open(os.path.join(DOCS, "index.html"), "w") as f:
-        f.write(docs_page)
-    # Serve the files as-is rather than running Jekyll over them.
-    open(os.path.join(DOCS, ".nojekyll"), "w").close()
-    for name in ("mail_merge.csv", "leads_full.csv"):
-        shutil.copyfile(os.path.join(DATA, name), os.path.join(DOCS, name))
 
-    print("WROTE site/index.html and docs/index.html (%.0f KB)"
+    # GitHub Pages can be pointed at either the repo root or /docs, and which
+    # one is actually selected has proven unreliable to confirm from outside
+    # the Settings UI. Writing the real site to BOTH makes the hosted page
+    # correct no matter which is chosen, rather than depending on that click
+    # having landed. /docs keeps the .nojekyll + CSVs; root gets the page and
+    # its own .nojekyll so it never falls back to rendering this README.
+    for target, with_extras in ((DOCS, True), (ROOT, True)):
+        os.makedirs(target, exist_ok=True)
+        with open(os.path.join(target, "index.html"), "w") as f:
+            f.write(docs_page)
+        open(os.path.join(target, ".nojekyll"), "w").close()
+        if with_extras:
+            for name in ("mail_merge.csv", "leads_full.csv"):
+                shutil.copyfile(os.path.join(DATA, name), os.path.join(target, name))
+
+    print("WROTE site/index.html, docs/index.html and index.html (root) (%.0f KB)"
           % (len(docs_page.encode()) / 1024))
     print("leads embedded:", len(leads))
 
