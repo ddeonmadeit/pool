@@ -215,10 +215,15 @@ def main():
     qualified = deduped
     qualified.sort(key=lambda p: -p["lead_score"])
 
+    # The polygon ring is pipeline scaffolding, not part of the deliverable, and
+    # carrying it makes the lead file an order of magnitude bigger than it needs
+    # to be. Anything downstream that needs geometry reads pools_addressed.json.
+    slim = [{k: v for k, v in p.items() if k != "ring"} for p in qualified]
+
     out = os.path.join(DATA, "leads.json")
     with open(out, "w") as f:
-        json.dump({"generated": str(date.today()), "count": len(qualified),
-                   "leads": qualified}, f)
+        json.dump({"generated": str(date.today()), "count": len(slim),
+                   "leads": slim}, f)
     print(f"total pools: {len(pools)}")
     print(f"dated: {sum(1 for p in pools if p.get('earliest_confirmed_year'))}")
     print(f"qualified 20+ yrs WITH address: {len(qualified)} "
