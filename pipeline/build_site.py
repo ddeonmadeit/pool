@@ -1,0 +1,265 @@
+"""Build the SDL Finder site: one self-contained page carrying every lead.
+
+The whole lead set is packed into the page as an array-of-arrays and the table
+is virtualised, so nothing is truncated - all 11,000+ leads are searchable and
+sortable while only the rows on screen exist in the DOM.
+
+The same file is published as an Artifact and served from GitHub Pages, so it
+must stay dependency-free apart from Google Fonts.
+"""
+import csv
+import html
+import json
+import os
+import shutil
+import sys
+from collections import Counter
+from datetime import date
+
+from site_css import CSS
+from site_js import JS
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+DATA = os.path.join(HERE, "..", "data")
+SITE = os.path.join(HERE, "..", "site")
+DOCS = os.path.join(HERE, "..", "docs")
+
+ERA = [(1978, "pre-1979"), (1986, "1979-86"), (1991, "1987-91"),
+       (1998, "1992-98"), (2005, "1999-2005")]
+THIS_YEAR = date.today().year
+
+
+def contact_str(p):
+    """One compact, already-escaped contact line, or empty."""
+    c = p.get("contact") or {}
+    bits = []
+    if c.get("name"):
+        bits.append(html.escape(str(c["name"])))
+    tel = c.get("phone") or c.get("mobile")
+    if tel:
+        t = html.escape(str(tel))
+        bits.append('<a href="tel:%s">%s</a>' % (t.replace(" ", ""), t))
+    if c.get("email"):
+        e = html.escape(str(c["email"]))
+        bits.append('<a href="mailto:%s">%s</a>' % (e, e))
+    if c.get("website"):
+        w = html.escape(str(c["website"]))
+        bits.append('<a href="%s" target="_blank" rel="noopener">site</a>' % w)
+    return " · ".join(bits)
+
+
+def pack(leads):
+    """Compact record layout, mirrored by the column constants in site_js."""
+    out = []
+    for p in leads:
+        out.append([
+            p.get("address") or "",
+            p.get("suburb") or "",
+            p.get("postcode") or "",
+            p.get("earliest_confirmed_year") or 0,
+            round(p.get("lead_score") or 0),
+            round((p.get("age_confidence") or 0) * 100),
+            round(p.get("area_m2") or 0),
+            round(p.get("lot_m2") or 0),
+            p.get("pools_at_address") or 1,
+            1 if p.get("address_match") == "nearby" else 0,
+            round(p.get("lat"), 5),
+            round(p.get("lon"), 5),
+            contact_str(p),
+        ])
+    return out
+
+
+def write_csvs(leads, outdir):
+    cols = ["address", "suburb", "postcode", "council", "earliest_confirmed_year",
+            "min_age_years", "lead_score", "age_confidence", "address_match",
+            "area_m2", "lot_m2", "length_m", "width_m", "rect_fill", "category",
+            "pools_at_address", "contact_name", "contact_phone", "contact_email",
+            "contact_website", "lat", "lon", "osm_id"]
+    for p in leads:
+        c = p.get("contact") or {}
+        p["contact_name"] = c.get("name", "")
+        p["contact_phone"] = c.get("phone") or c.get("mobile") or ""
+        p["contact_email"] = c.get("email", "")
+        p["contact_website"] = c.get("website", "")
+    with open(os.path.join(outdir, "leads_full.csv"), "w", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=cols, extrasaction="ignore")
+        w.writeheader()
+        w.writerows(leads)
+    with open(os.path.join(outdir, "mail_merge.csv"), "w", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(["Address", "Suburb", "State", "Postcode", "PoolAgeYearsMin",
+                    "PoolBuiltBefore", "LeadScore"])
+        for p in leads:
+            w.writerow([p.get("address", ""), p.get("suburb", ""), "NSW",
+                        p.get("postcode") or "", p.get("min_age_years", ""),
+                        p.get("earliest_confirmed_year", ""), p.get("lead_score", "")])
+
+
+def build(leads, with_downloads=False):
+    packed = pack(leads)
+    payload = json.dumps(packed, separators=(",", ":"), ensure_ascii=False)
+    subs = sorted({p.get("suburb") for p in leads if p.get("suburb")})
+    subopts = "".join('<option value="%s">%s</option>' % (html.escape(s), html.escape(s))
+                      for s in subs)
+    era_counts = Counter(p.get("earliest_confirmed_year") for p in leads)
+    legend = "".join(
+        '<span><span class="pill e%s">%s</span> <b>%s</b></span>'
+        % (str(y)[-2:], lbl, format(era_counts.get(y, 0), ","))
+        for y, lbl in ERA if era_counts.get(y))
+    eraopts = "".join('<option value="%d">%s</option>' % (y, lbl)
+                      for y, lbl in ERA if era_counts.get(y))
+    n = len(leads)
+    oldest = min((p["earliest_confirmed_year"] for p in leads
+                  if p.get("earliest_confirmed_year")), default=None)
+    councils = Counter(p.get("council") for p in leads if p.get("council"))
+    top_councils = ", ".join(c.title() for c, _ in councils.most_common(4))
+
+    return """<title>SDL Finder</title>
+<meta name="description" content="Sydney properties with a pool confirmed 20+ years old from NSW government aerial imagery. Addresses, scoring and direct-mail outreach tracking.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" media="print" onload="this.media='all'" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800;900&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800;900&family=IBM+Plex+Mono:wght@400;500;600&display=swap"></noscript>
+<style>__CSS__</style>
+
+<div class="shell">
+
+<div class="chassis">
+  <span class="brand">SDL<i>FINDER</i></span>
+  <span class="spacer"></span>
+  <span class="readout">
+    __N__ verified leads &middot; aged by NSW aerial imagery<br>
+    <b>__OLDEST__</b> oldest confirmed capture &middot; built __DATE__
+  </span>
+</div>
+
+<div class="eyebrow"><span class="dash"></span>Sydney &middot; pool renovation prospects</div>
+<h1>Every Sydney pool we can prove is <em>over 20 years old</em>.</h1>
+<p class="lede">__N__ properties whose pool shows open water in NSW government aerial
+imagery from 2005 or earlier. Each one carries a street address and postcode.
+Heaviest in __COUNCILS__. Click a status key as you work the list &mdash; it saves in this browser.</p>
+
+<div class="stats">
+  <div class="stat n"><div class="v" id="k-new">0</div><div class="k">Not contacted</div></div>
+  <div class="stat"><div class="v" id="k-mailed">0</div><div class="k">Mailed</div></div>
+  <div class="stat"><div class="v" id="k-replied">0</div><div class="k">Replied</div></div>
+  <div class="stat"><div class="v" id="k-quoted">0</div><div class="k">Quoted</div></div>
+  <div class="stat g"><div class="v" id="k-won">0</div><div class="k">Won</div></div>
+  <div class="stat n"><div class="v" id="k-shown">0</div><div class="k">Matching filter</div></div>
+</div>
+
+<div class="legend">__LEGEND__</div>
+
+<div class="controls">
+  <input type="search" id="q" placeholder="Search address, suburb or postcode&hellip;" aria-label="Search">
+  <span class="ctl-label">Suburb</span>
+  <select id="f-sub" aria-label="Suburb"><option value="">All</option>__SUBOPTS__</select>
+  <span class="ctl-label">Built</span>
+  <select id="f-era" aria-label="Era"><option value="">Any</option>__ERAOPTS__</select>
+  <span class="ctl-label">Status</span>
+  <select id="f-st" aria-label="Status">
+    <option value="">All</option><option value="new">Not contacted</option>
+    <option value="mailed">Mailed</option><option value="replied">Replied</option>
+    <option value="quoted">Quoted</option><option value="won">Won</option>
+    <option value="dead">Not interested</option>
+  </select>
+  <span class="ctl-label">Contact</span>
+  <select id="f-con" aria-label="Contact"><option value="">Any</option><option value="1">Has phone/email</option></select>
+  <button type="button" class="key" id="reset">Clear</button>
+  <button type="button" class="key" id="export">Copy tracked CSV</button>
+  <button type="button" class="key" id="backup">Back up</button>
+  <button type="button" class="key" id="restore">Restore</button>
+  <span class="tally" id="tally">&mdash;</span>
+</div>
+
+<div class="well">
+  <div class="well-head">
+    <span class="well-title">Outreach ledger &middot; NSW historical imagery 1978&ndash;2005</span>
+    <span class="well-count" id="saved"></span>
+  </div>
+  <div class="scroller" id="scroller">
+    <table>
+      <colgroup>
+        <col style="width:31%"><col style="width:13%"><col style="width:7%">
+        <col style="width:8%"><col style="width:6%"><col style="width:6%">
+        <col style="width:12%"><col style="width:13%"><col style="width:4%">
+      </colgroup>
+      <thead><tr>
+        <th class="sortable" data-sort="suburb">Address<span class="ind"></span></th>
+        <th class="sortable" data-sort="age">Pool built<span class="ind"></span></th>
+        <th class="sortable num" data-sort="area">Pool m&sup2;<span class="ind"></span></th>
+        <th class="sortable num" data-sort="lot">Block m&sup2;<span class="ind"></span></th>
+        <th class="sortable num" data-sort="score">Score<span class="ind">&#9660;</span></th>
+        <th class="num">Conf</th>
+        <th>Status</th><th>Note</th><th></th>
+      </tr></thead>
+      <tbody id="pads-top"><tr id="pad-top" style="height:0"><td colspan="9"></td></tr></tbody>
+      <tbody id="tb"></tbody>
+      <tbody id="pads-bot"><tr id="pad-bot" style="height:0"><td colspan="9"></td></tr></tbody>
+    </table>
+    <div class="empty" id="empty" hidden>No leads match these filters.</div>
+  </div>
+</div>
+
+<footer>
+  <b>How the age is proven</b> &mdash; every pool footprint is sampled against NSW Spatial
+  Services historical aerial imagery. A lead appears here only if open water showed at its
+  mapped position in 1998 or 2005 imagery, so the pool pre-dates 2006.<br>
+  <b>Score</b> blends confirmed age (50%), pre-2000 shape signature (18%), block size (14%)
+  and imagery confidence (18%). <b>Conf</b> is how clean the imagery read was, 0&ndash;1;
+  below 0.45, check the map link before posting. <b>~</b> means the address came from the
+  nearest parcel rather than one containing the pool.<br>
+  __DOWNLOADS__<b>Tracking</b> saves in this browser only. Use <b>Back up</b> now and then, and
+  <b>Restore</b> to move it to another machine.<br>
+  Data: OpenStreetMap contributors (ODbL) &middot; NSW Spatial Services, Department of
+  Customer Service (CC BY 4.0).
+</footer>
+</div>
+
+<script type="application/json" id="lead-data">__PAYLOAD__</script>
+<script>__JS__</script>
+""".replace("__CSS__", CSS).replace("__JS__", JS) \
+   .replace("__PAYLOAD__", payload) \
+   .replace("__SUBOPTS__", subopts).replace("__ERAOPTS__", eraopts) \
+   .replace("__LEGEND__", legend) \
+   .replace("__COUNCILS__", top_councils) \
+   .replace("__OLDEST__", str(oldest) if oldest else "n/a") \
+   .replace("__DATE__", str(date.today())) \
+   .replace("__DOWNLOADS__", (
+       '<b>Download</b> the full list: <a href="mail_merge.csv" download>mail_merge.csv</a> '
+       '(addresses only, ready for a mail house) or '
+       '<a href="leads_full.csv" download>leads_full.csv</a> (every field).<br>'
+   ) if with_downloads else "") \
+   .replace("__N__", format(n, ","))
+
+
+def main():
+    with open(os.path.join(DATA, "leads.json")) as f:
+        leads = json.load(f)["leads"]
+    leads.sort(key=lambda p: -(p.get("lead_score") or 0))
+
+    write_csvs(leads, DATA)
+
+    # The Artifact sandbox blocks page-initiated downloads, so only the
+    # GitHub Pages build advertises the CSV files.
+    os.makedirs(SITE, exist_ok=True)
+    with open(os.path.join(SITE, "index.html"), "w") as f:
+        f.write(build(leads, with_downloads=False))
+
+    os.makedirs(DOCS, exist_ok=True)
+    docs_page = build(leads, with_downloads=True)
+    with open(os.path.join(DOCS, "index.html"), "w") as f:
+        f.write(docs_page)
+    # Serve the files as-is rather than running Jekyll over them.
+    open(os.path.join(DOCS, ".nojekyll"), "w").close()
+    for name in ("mail_merge.csv", "leads_full.csv"):
+        shutil.copyfile(os.path.join(DATA, name), os.path.join(DOCS, name))
+
+    print("WROTE site/index.html and docs/index.html (%.0f KB)"
+          % (len(docs_page.encode()) / 1024))
+    print("leads embedded:", len(leads))
+
+
+if __name__ == "__main__":
+    sys.exit(main())

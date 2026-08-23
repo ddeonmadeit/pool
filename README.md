@@ -65,14 +65,19 @@ pipeline/
   suburbs.py          suburb -> postcode and council
   score.py            lead ranking
   enrich_contacts.py  business contacts for commercial/strata pools only
-  build_dashboard.py  dashboard HTML + CSV extracts
+  build_site.py       the site: one self-contained page carrying every lead
+  site_css.py         stylesheet (RawLeads-style dark console)
+  site_js.py          client logic: virtualised table, filters, tracking
   run_all.sh          end-to-end
 data/
   leads.json          scored, ranked leads
   leads_full.csv      every field, every lead
   mail_merge.csv      address-only extract for a mail house
-dashboard/
-  index.html          the outreach tracker
+site/
+  index.html          build published as an Artifact
+docs/
+  index.html          same page, served by GitHub Pages
+  *.csv               downloadable extracts
 ```
 
 ## Running it
@@ -134,3 +139,39 @@ on any pool polygon source - the only replaceable part is `fetch_pools.py`.
 - OpenStreetMap contributors, ODbL
 - NSW Spatial Services - cadastre, geocoded addressing, historical imagery
   (Department of Customer Service, CC BY 4.0)
+
+
+## The site
+
+`docs/index.html` is one self-contained page holding **every** qualified lead.
+Nothing is truncated: the whole set ships inline as a packed array-of-arrays and
+the table is virtualised, so only the ~30 rows actually on screen exist in the
+DOM at any moment. Measured with the font host unreachable, 10,419 leads reach
+usable in **0.24 s**, and filtering the full set takes about a third of a second.
+Packing the data rather than pre-rendering table markup also made the page
+*smaller* than the earlier 2,500-row version - 1.0 MB against 2.1 MB.
+
+Outreach state is kept in `localStorage`, keyed by pool id. **Back up** copies it
+to the clipboard as JSON and **Restore** reads it back, which is how you move
+tracking to another machine. **Copy tracked CSV** puts everything you have
+touched on the clipboard for a spreadsheet.
+
+### Hosting
+
+`.github/workflows/pages.yml` deploys `docs/` to GitHub Pages on every push,
+and runs `configure-pages` with `enablement: true` so the first successful run
+switches Pages on by itself. The repository is public, so Pages is free and
+carries no advertising.
+
+To put it on a custom domain, buy the domain, add a file `docs/CNAME` whose only
+content is the bare hostname, and point DNS at GitHub:
+
+```
+A     @   185.199.108.153
+A     @   185.199.109.153
+A     @   185.199.110.153
+A     @   185.199.111.153
+CNAME www  <user>.github.io.
+```
+
+Then tick *Enforce HTTPS* under Settings -> Pages once the certificate is issued.

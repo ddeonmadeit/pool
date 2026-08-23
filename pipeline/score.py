@@ -13,6 +13,7 @@ convert for a landscaping business:
 """
 import json
 import os
+import re
 import sys
 from collections import Counter
 from datetime import date
@@ -167,6 +168,23 @@ def suburb_of(address):
     return parts[-1]
 
 
+def is_mailable(p):
+    """Can Australia Post actually deliver a letter here?
+
+    Two things disqualify an address. Without a leading street number it is a
+    road, not a letterbox - the cadastre returns these for parcels that have no
+    principal address point. And a parcel over ten hectares is a landholding
+    rather than a back yard: Holsworthy army base comes back as a single 230
+    square kilometre title with thirteen pools inside it, which is neither one
+    letterbox nor a renovation prospect.
+    """
+    if not re.match(r"^\s*\d", p.get("address") or ""):
+        return False
+    if (p.get("lot_m2") or 0) > 100000:
+        return False
+    return True
+
+
 def load_suburb_lookup():
     path = os.path.join(DATA, "suburb_lookup.json")
     if not os.path.exists(path):
@@ -189,11 +207,14 @@ def main():
         p["postcode"] = meta.get("postcode")
         p["council"] = meta.get("council")
 
+    for p in pools:
+        p["mailable"] = bool(p.get("address")) and is_mailable(p)
+
     qualified = [
         p for p in pools
         if p.get("earliest_confirmed_year")
         and (THIS_YEAR - p["earliest_confirmed_year"]) >= 20
-        and p.get("address")
+        and p.get("mailable")
     ]
 
     # One letter per letterbox. Estates, schools and strata blocks can carry
@@ -226,7 +247,9 @@ def main():
                    "leads": slim}, f)
     print(f"total pools: {len(pools)}")
     print(f"dated: {sum(1 for p in pools if p.get('earliest_confirmed_year'))}")
-    print(f"qualified 20+ yrs WITH address: {len(qualified)} "
+    unmailable = sum(1 for p in pools if p.get("address") and not p["mailable"])
+    print(f"addressed but not mailable (no street number / >10 ha): {unmailable}")
+    print(f"qualified 20+ yrs, mailable: {len(qualified)} "
           f"(collapsed {dropped} extra pools sharing an address)")
     print("by earliest year:",
           Counter(p["earliest_confirmed_year"] for p in qualified).most_common())
