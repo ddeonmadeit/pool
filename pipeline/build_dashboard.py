@@ -31,8 +31,16 @@ def era_of(year):
 
 def write_csvs(leads):
     cols = ["address", "suburb", "earliest_confirmed_year", "min_age_years",
-            "lead_score", "age_confidence", "area_m2", "lot_m2", "length_m",
-            "width_m", "rect_fill", "category", "lat", "lon", "osm_id"]
+            "lead_score", "age_confidence", "address_match", "area_m2",
+            "lot_m2", "length_m", "width_m", "rect_fill", "category",
+            "contact_name", "contact_phone", "contact_email", "contact_website",
+            "postcode", "council", "pools_at_address", "lat", "lon", "osm_id"]
+    for p in leads:
+        c = p.get("contact") or {}
+        p["contact_name"] = c.get("name", "")
+        p["contact_phone"] = c.get("phone") or c.get("mobile") or ""
+        p["contact_email"] = c.get("email", "")
+        p["contact_website"] = c.get("website", "")
     full = os.path.join(DATA, "leads_full.csv")
     with open(full, "w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=cols, extrasaction="ignore")
@@ -45,7 +53,8 @@ def write_csvs(leads):
         w.writerow(["Address", "Suburb", "State", "Postcode",
                     "PoolAgeYearsMin", "PoolBuiltBefore", "LeadScore"])
         for p in leads:
-            w.writerow([p.get("address", ""), p.get("suburb", ""), "NSW", "",
+            w.writerow([p.get("address", ""), p.get("suburb", ""), "NSW",
+                        p.get("postcode", "") or "",
                         p.get("min_age_years", ""),
                         p.get("earliest_confirmed_year", ""),
                         p.get("lead_score", "")])
@@ -64,9 +73,34 @@ def row_html(p, i):
     conf = p.get("age_confidence") or 0
     lat, lon = p.get("lat"), p.get("lon")
     maps = f"https://www.google.com/maps/search/?api=1&query={lat},{lon}"
-    return f"""<tr class="row" data-status="new" data-key="{html.escape(p['osm_id'])}" data-suburb="{sub}" data-era="{cls}" data-age="{age}" data-score="{score}">
+
+    c = p.get("contact") or {}
+    bits = []
+    if c.get("name"):
+        bits.append(f'<b>{html.escape(str(c["name"]))}</b>')
+    tel = c.get("phone") or c.get("mobile")
+    if tel:
+        t = html.escape(str(tel))
+        bits.append(f'<a href="tel:{t.replace(" ", "")}">{t}</a>')
+    if c.get("email"):
+        em = html.escape(str(c["email"]))
+        bits.append(f'<a href="mailto:{em}">{em}</a>')
+    if c.get("website"):
+        ws = html.escape(str(c["website"]))
+        bits.append(f'<a href="{ws}" target="_blank" rel="noopener">site</a>')
+    contact = f'<span class="contact">{" &middot; ".join(bits)}</span>' if bits else ""
+    has_contact = "1" if bits else "0"
+    npools = p.get("pools_at_address") or 1
+    multi = (f'<span class="multi" title="{npools} pools mapped on this '
+             f'property">x{npools}</span>') if npools > 1 else ""
+    pcode = f' &middot; {p["postcode"]}' if p.get("postcode") else ""
+    approx = ('<span class="approx" title="Matched to the closest parcel, '
+              'not one containing the pool - check the map link">~</span>'
+              if p.get("address_match") == "nearby" else "")
+
+    return f"""<tr class="row" data-status="new" data-key="{html.escape(p['osm_id'])}" data-suburb="{sub}" data-era="{cls}" data-age="{age}" data-score="{score}" data-contact="{has_contact}">
 <td class="c-stripe"><span class="stripe {cls}"></span></td>
-<td class="c-addr"><span class="addr">{addr}</span><span class="sub">{sub}</span></td>
+<td class="c-addr"><span class="addr">{addr}{approx}{multi}</span><span class="sub">{sub}{pcode}</span>{contact}</td>
 <td class="c-era"><span class="chip {cls}">{label}</span><span class="age">{age}+ yrs</span></td>
 <td class="c-num">{area:.0f}</td>
 <td class="c-num">{lot:.0f}</td>
@@ -207,6 +241,14 @@ tbody tr:hover {{ background:var(--surface-2); }}
 .addr {{ display:block; font-weight:600; font-size:13.5px; letter-spacing:-.005em; }}
 .sub {{ display:block; font-size:11px; color:var(--ink-3);
   text-transform:uppercase; letter-spacing:.07em; }}
+.contact {{ display:block; font-family:"IBM Plex Mono",monospace; font-size:11px;
+  color:var(--ink-2); margin-top:2px; }}
+.contact a {{ color:var(--accent); text-decoration:none; }}
+.contact a:hover {{ text-decoration:underline; }}
+.approx {{ color:var(--ink-3); font-weight:400; margin-left:4px; cursor:help; }}
+.multi {{ font-family:"IBM Plex Mono",monospace; font-size:10px; font-weight:600;
+  color:var(--accent); background:var(--accent-soft); border-radius:3px;
+  padding:1px 4px; margin-left:6px; cursor:help; }}
 .chip {{ display:inline-block; font-family:"IBM Plex Mono",monospace; font-size:11px;
   font-weight:600; padding:2px 7px; border-radius:4px; color:#fff; }}
 .chip.e78 {{ background:var(--e78); }} .chip.e86 {{ background:var(--e86); }}
@@ -302,6 +344,8 @@ footer b {{ color:var(--ink-2); font-weight:600; }}
     <option value="quoted">Quoted</option><option value="won">Won</option>
     <option value="dead">Not interested</option>
   </select>
+  <label for="f-con">Contact</label>
+  <select id="f-con"><option value="">Any</option><option value="1">Has phone/email</option></select>
   <button type="button" class="act" id="reset">Clear filters</button>
   <span class="pill" id="count">&mdash;</span>
   <span class="savechip" id="save">&nbsp;</span>
@@ -401,15 +445,18 @@ footer b {{ color:var(--ink-2); font-weight:600; }}
   }});
 
   var q = document.getElementById("q"), fs = document.getElementById("f-sub"),
-      fe = document.getElementById("f-era"), ft = document.getElementById("f-st");
+      fe = document.getElementById("f-era"), ft = document.getElementById("f-st"),
+      fc = document.getElementById("f-con");
 
   function applyFilters() {{
-    var s = q.value.trim().toLowerCase(), sub = fs.value, era = fe.value, st = ft.value;
+    var s = q.value.trim().toLowerCase(), sub = fs.value, era = fe.value,
+        st = ft.value, con = fc.value;
     rows.forEach(function (tr) {{
       var ok = true;
       if (sub && tr.dataset.suburb !== sub) ok = false;
       if (ok && era && tr.dataset.era !== era) ok = false;
       if (ok && st && (tr.dataset.status || "new") !== st) ok = false;
+      if (ok && con && tr.dataset.contact !== con) ok = false;
       if (ok && s) {{
         var t = (tr.querySelector(".addr").textContent + " " + tr.dataset.suburb).toLowerCase();
         if (t.indexOf(s) === -1) ok = false;
@@ -419,12 +466,13 @@ footer b {{ color:var(--ink-2); font-weight:600; }}
     counts();
   }}
 
-  [q, fs, fe, ft].forEach(function (el) {{
+  [q, fs, fe, ft, fc].forEach(function (el) {{
     el.addEventListener("input", applyFilters);
     el.addEventListener("change", applyFilters);
   }});
   document.getElementById("reset").addEventListener("click", function () {{
-    q.value = ""; fs.value = ""; fe.value = ""; ft.value = ""; applyFilters();
+    q.value = ""; fs.value = ""; fe.value = ""; ft.value = ""; fc.value = "";
+    applyFilters();
   }});
 
   // Another writer's edit landing in the shared document.

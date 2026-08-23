@@ -106,22 +106,32 @@ def score_pool(p, age_rec):
     elif earliest == 2005:
         age_pts = 0.5
 
+    # Block size maps to how much surround, coping and paving a job involves.
+    # It peaks in the range of a generous suburban block: parcels in the tens of
+    # thousands of square metres are schools, clubs and estates, not a back yard,
+    # so they score down rather than topping the list.
     lot = p.get("lot_m2") or 0
-    if lot >= 1200:
+    if lot >= 20000:
+        lot_pts = 0.25
+    elif lot >= 5000:
+        lot_pts = 0.5
+    elif lot >= 1200:
         lot_pts = 1.0
     elif lot >= 800:
-        lot_pts = 0.8
+        lot_pts = 0.85
     elif lot >= 550:
-        lot_pts = 0.6
+        lot_pts = 0.65
     elif lot >= 350:
-        lot_pts = 0.4
+        lot_pts = 0.45
     else:
-        lot_pts = 0.2
+        lot_pts = 0.25
 
     shape_pts = shape_era_score(p)
 
     score = 100 * (0.50 * age_pts + 0.18 * shape_pts + 0.14 * lot_pts
                    + 0.18 * conf)
+    if p.get("address_match") == "nearby":
+        score -= 3  # matched to the closest parcel, not one containing the pool
     p["earliest_confirmed_year"] = earliest
     p["min_age_years"] = min_age
     p["age_confidence"] = conf
@@ -154,15 +164,27 @@ def suburb_of(address):
     return parts[-1]
 
 
+def load_suburb_lookup():
+    path = os.path.join(DATA, "suburb_lookup.json")
+    if not os.path.exists(path):
+        return {}
+    with open(path) as f:
+        return json.load(f)
+
+
 def main():
     src = os.path.join(DATA, "pools_addressed.json")
     with open(src) as f:
         pools = json.load(f)["pools"]
     ages = load_ages()
 
+    sub_lookup = load_suburb_lookup()
     for p in pools:
         score_pool(p, ages.get(p["osm_id"]))
         p["suburb"] = suburb_of(p.get("address"))
+        meta = sub_lookup.get((p["suburb"] or "").upper()) or {}
+        p["postcode"] = meta.get("postcode")
+        p["council"] = meta.get("council")
 
     qualified = [
         p for p in pools
@@ -170,6 +192,24 @@ def main():
         and (THIS_YEAR - p["earliest_confirmed_year"]) >= 20
         and p.get("address")
     ]
+
+    # One letter per letterbox. Estates, schools and strata blocks can carry
+    # several pools on a single title, and mailing the same address three times
+    # wastes postage and looks careless - so collapse to the best-scoring pool
+    # per address and record how many pools sit behind it.
+    by_addr = {}
+    for p in qualified:
+        key = (p["address"] or "").strip().upper()
+        cur = by_addr.get(key)
+        if cur is None or p["lead_score"] > cur["lead_score"]:
+            if cur is not None:
+                p["pools_at_address"] = cur.get("pools_at_address", 1) + 1
+            by_addr[key] = p
+        else:
+            cur["pools_at_address"] = cur.get("pools_at_address", 1) + 1
+    deduped = list(by_addr.values())
+    dropped = len(qualified) - len(deduped)
+    qualified = deduped
     qualified.sort(key=lambda p: -p["lead_score"])
 
     out = os.path.join(DATA, "leads.json")
@@ -178,10 +218,13 @@ def main():
                    "leads": qualified}, f)
     print(f"total pools: {len(pools)}")
     print(f"dated: {sum(1 for p in pools if p.get('earliest_confirmed_year'))}")
-    print(f"qualified 20+ yrs WITH address: {len(qualified)}")
+    print(f"qualified 20+ yrs WITH address: {len(qualified)} "
+          f"(collapsed {dropped} extra pools sharing an address)")
     print("by earliest year:",
           Counter(p["earliest_confirmed_year"] for p in qualified).most_common())
+    print("with postcode:", sum(1 for p in qualified if p.get("postcode")))
     print("top suburbs:", Counter(p["suburb"] for p in qualified).most_common(15))
+    print("top councils:", Counter(p["council"] for p in qualified).most_common(10))
     print("WROTE", out)
 
 

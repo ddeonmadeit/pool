@@ -27,6 +27,7 @@ PROPERTY_QUERY = (
     "/NSW_Land_Parcel_Property_Theme/MapServer/12/query"
 )
 CELL = 0.01  # degrees; ~1.1 km, comfortably under the 2000-feature page limit
+NEAR_LIMIT_M = 30.0  # fallback radius when a pool falls outside every parcel
 
 
 def cell_key(lat, lon):
@@ -108,6 +109,29 @@ def point_in_ring(x, y, ring):
     return inside
 
 
+def ring_distance_m(x, y, ring, lat0):
+    """Approximate metres from a point to a ring's nearest vertex or edge."""
+    mlon = 111320.0 * math.cos(math.radians(lat0))
+    mlat = 111320.0
+    best = float("inf")
+    n = len(ring)
+    for i in range(n):
+        ax, ay = ring[i][0], ring[i][1]
+        bx, by = ring[(i + 1) % n][0], ring[(i + 1) % n][1]
+        ax, ay = (ax - x) * mlon, (ay - y) * mlat
+        bx, by = (bx - x) * mlon, (by - y) * mlat
+        dx, dy = bx - ax, by - ay
+        seg = dx * dx + dy * dy
+        if seg <= 0:
+            d = math.hypot(ax, ay)
+        else:
+            t = max(0.0, min(1.0, -(ax * dx + ay * dy) / seg))
+            d = math.hypot(ax + t * dx, ay + t * dy)
+        if d < best:
+            best = d
+    return best
+
+
 def index_parcels(parcels):
     """Precompute bounding boxes so containment tests stay cheap."""
     out = []
@@ -148,16 +172,35 @@ def match(pools, workers=6):
             for pool in buckets[key]:
                 x, y = pool["lon"], pool["lat"]
                 best = None
+                quality = None
                 for minx, miny, maxx, maxy, p in idx:
                     if minx <= x <= maxx and miny <= y <= maxy:
                         if point_in_ring(x, y, p["ring"]):
-                            best = p
+                            best, quality = p, "exact"
                             break
+                if best is None:
+                    # The cadastre and OSM do not always agree to the metre, and
+                    # a pool mapped a little over a boundary would otherwise be
+                    # dropped. Fall back to the closest parcel within 30 m.
+                    near = None
+                    nd = NEAR_LIMIT_M
+                    pad = 0.0006
+                    for minx, miny, maxx, maxy, p in idx:
+                        if not (minx - pad <= x <= maxx + pad
+                                and miny - pad <= y <= maxy + pad):
+                            continue
+                        d = ring_distance_m(x, y, p["ring"], y)
+                        if d < nd:
+                            nd, near = d, p
+                    if near is not None:
+                        best, quality = near, "nearby"
+                        pool["address_offset_m"] = round(nd, 1)
                 if best:
                     pool["address"] = best["address"]
                     pool["propid"] = best["propid"]
                     pool["lot_m2"] = best["lot_m2"]
                     pool["property_type"] = best["ptype"]
+                    pool["address_match"] = quality
                     hits[0] += 1
             if done[0] % 25 == 0:
                 print(f"  [{done[0]}/{len(keys)}] matched {hits[0]}", flush=True)
