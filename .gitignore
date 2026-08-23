@@ -4,5 +4,9 @@ data/pools_addressed.json
 data/cache/
 data/*.log
 
+# Appended to continuously while the dating run is in flight; re-tracked and
+# committed once the pipeline completes.
+data/pool_ages.jsonl
+
 __pycache__/
 *.pyc
