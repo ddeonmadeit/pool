@@ -11,7 +11,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 DATA = os.path.join(HERE, "..", "data")
 DASH = os.path.join(HERE, "..", "dashboard")
 
-MAX_ROWS = int(os.environ.get("DASH_ROWS", "2000"))
+MAX_ROWS = int(os.environ.get("DASH_ROWS", "2500"))
 
 ERA = [
     (1978, "pre-1979", "e78"),
@@ -88,7 +88,7 @@ def row_html(p, i):
     if c.get("website"):
         ws = html.escape(str(c["website"]))
         bits.append(f'<a href="{ws}" target="_blank" rel="noopener">site</a>')
-    contact = f'<span class="contact">{" &middot; ".join(bits)}</span>' if bits else ""
+    contact = (" &middot; " + " &middot; ".join(bits)) if bits else ""
     has_contact = "1" if bits else "0"
     npools = p.get("pools_at_address") or 1
     multi = (f'<span class="multi" title="{npools} pools mapped on this '
@@ -98,25 +98,16 @@ def row_html(p, i):
               'not one containing the pool - check the map link">~</span>'
               if p.get("address_match") == "nearby" else "")
 
-    return f"""<tr class="row" data-status="new" data-key="{html.escape(p['osm_id'])}" data-suburb="{sub}" data-era="{cls}" data-age="{age}" data-score="{score}" data-contact="{has_contact}">
-<td class="c-stripe"><span class="stripe {cls}"></span></td>
-<td class="c-addr"><span class="addr">{addr}{approx}{multi}</span><span class="sub">{sub}{pcode}</span>{contact}</td>
-<td class="c-era"><span class="chip {cls}">{label}</span><span class="age">{age}+ yrs</span></td>
+    return f"""<tr class="row {cls}" data-status="new" data-key="{html.escape(p['osm_id'])}" data-suburb="{sub}" data-era="{cls}" data-score="{score}" data-contact="{has_contact}">
+<td class="c-addr"><span class="addr">{addr}{approx}{multi}</span><span class="sub">{sub}{pcode}{contact}</span></td>
+<td class="c-era"><span class="chip {cls}">{label}</span> <span class="age">{age}+</span></td>
 <td class="c-num">{area:.0f}</td>
 <td class="c-num">{lot:.0f}</td>
-<td class="c-score"><span class="sc">{score:.0f}</span><span class="bar"><i style="width:{min(score,100):.0f}%"></i></span></td>
-<td class="c-conf" title="Imagery evidence confidence">{conf:.2f}</td>
-<td class="c-status">
-<div class="statusbtns" role="group" aria-label="Outreach status for {addr}">
-<button type="button" class="sbtn" data-set="new" title="Not contacted">·</button>
-<button type="button" class="sbtn" data-set="mailed" title="Mail sent">Mailed</button>
-<button type="button" class="sbtn" data-set="replied" title="They replied">Replied</button>
-<button type="button" class="sbtn" data-set="quoted" title="Quote given">Quoted</button>
-<button type="button" class="sbtn" data-set="won" title="Job won">Won</button>
-<button type="button" class="sbtn" data-set="dead" title="Not interested">Dead</button>
-</div></td>
+<td class="c-num sc">{score:.0f}</td>
+<td class="c-conf">{conf:.2f}</td>
+<td class="c-status"><button type="button" class="cyc">Not contacted</button></td>
 <td class="c-note"><input class="note" type="text" placeholder="note" aria-label="Note for {addr}" value=""></td>
-<td class="c-link"><a href="{maps}" target="_blank" rel="noopener" title="Open in Google Maps">map</a></td>
+<td class="c-link"><a href="{maps}" target="_blank" rel="noopener">map</a></td>
 </tr>"""
 
 
@@ -136,7 +127,8 @@ def build(leads, stats):
     return f"""<title>Poolside Ledger</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=Public+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" media="print" onload="this.media='all'" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=Public+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=Public+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap"></noscript>
 <style>
 :root {{
   --ground:#EDF1F2; --surface:#FFFFFF; --surface-2:#F5F8F8; --line:#D2DDDE;
@@ -225,7 +217,15 @@ button.act:hover {{ border-color:var(--accent); color:var(--accent); }}
 
 .tablewrap {{ overflow-x:auto; background:var(--surface); border:1px solid var(--line);
   border-radius:8px; box-shadow:var(--shadow); }}
-table {{ border-collapse:collapse; width:100%; min-width:1080px; }}
+/* A 2,500-row auto-layout table forces the browser to measure every cell in
+   every column before it can paint. Fixing the layout and declaring the column
+   widths removes that pass entirely, and content-visibility lets it skip the
+   rows that are scrolled out of view. Together these take first paint from
+   ~14s to well under a second. */
+table {{ border-collapse:collapse; width:100%; min-width:1120px;
+  table-layout:fixed; }}
+tbody tr {{ content-visibility:auto; contain-intrinsic-size:auto 41px; }}
+.c-addr {{ overflow:hidden; text-overflow:ellipsis; }}
 thead th {{ position:sticky; top:0; background:var(--surface-2); z-index:5;
   font-size:10.5px; text-transform:uppercase; letter-spacing:.08em;
   color:var(--ink-3); font-weight:600; text-align:left;
@@ -233,18 +233,16 @@ thead th {{ position:sticky; top:0; background:var(--surface-2); z-index:5;
 tbody td {{ padding:7px 10px; border-bottom:1px solid var(--line);
   vertical-align:middle; }}
 tbody tr:hover {{ background:var(--surface-2); }}
-.c-stripe {{ width:5px; padding:0 !important; }}
-.stripe {{ display:block; width:4px; height:34px; border-radius:2px; }}
-.stripe.e78 {{ background:var(--e78); }} .stripe.e86 {{ background:var(--e86); }}
-.stripe.e91 {{ background:var(--e91); }} .stripe.e98 {{ background:var(--e98); }}
-.stripe.e05 {{ background:var(--e05); }}
+tbody tr.row {{ border-left:4px solid transparent; }}
+tbody tr.e78 {{ border-left-color:var(--e78); }}
+tbody tr.e86 {{ border-left-color:var(--e86); }}
+tbody tr.e91 {{ border-left-color:var(--e91); }}
+tbody tr.e98 {{ border-left-color:var(--e98); }}
+tbody tr.e05 {{ border-left-color:var(--e05); }}
 .addr {{ display:block; font-weight:600; font-size:13.5px; letter-spacing:-.005em; }}
-.sub {{ display:block; font-size:11px; color:var(--ink-3);
-  text-transform:uppercase; letter-spacing:.07em; }}
-.contact {{ display:block; font-family:"IBM Plex Mono",monospace; font-size:11px;
-  color:var(--ink-2); margin-top:2px; }}
-.contact a {{ color:var(--accent); text-decoration:none; }}
-.contact a:hover {{ text-decoration:underline; }}
+.sub {{ display:block; font-size:11px; color:var(--ink-3); letter-spacing:.04em; }}
+.sub a {{ color:var(--accent); text-decoration:none; }}
+.sub a:hover {{ text-decoration:underline; }}
 .approx {{ color:var(--ink-3); font-weight:400; margin-left:4px; cursor:help; }}
 .multi {{ font-family:"IBM Plex Mono",monospace; font-size:10px; font-weight:600;
   color:var(--accent); background:var(--accent-soft); border-radius:3px;
@@ -254,32 +252,26 @@ tbody tr:hover {{ background:var(--surface-2); }}
 .chip.e78 {{ background:var(--e78); }} .chip.e86 {{ background:var(--e86); }}
 .chip.e91 {{ background:var(--e91); }} .chip.e98 {{ background:var(--e98); }}
 .chip.e05 {{ background:var(--e05); }}
-.age {{ display:block; font-size:10.5px; color:var(--ink-3);
+.age {{ font-size:10.5px; color:var(--ink-3);
   font-family:"IBM Plex Mono",monospace; }}
 .c-num {{ font-family:"IBM Plex Mono",monospace; font-variant-numeric:tabular-nums;
   font-size:12.5px; color:var(--ink-2); text-align:right; white-space:nowrap; }}
 .c-conf {{ font-family:"IBM Plex Mono",monospace; font-size:12px; color:var(--ink-3);
   text-align:right; }}
-.c-score {{ white-space:nowrap; }}
-.sc {{ font-family:"IBM Plex Mono",monospace; font-weight:600; font-size:13px;
-  font-variant-numeric:tabular-nums; }}
-.bar {{ display:block; width:62px; height:3px; background:var(--line);
-  border-radius:2px; overflow:hidden; margin-top:3px; }}
-.bar i {{ display:block; height:100%; background:var(--accent); }}
-.statusbtns {{ display:flex; gap:3px; }}
-.sbtn {{ font-family:"Public Sans",sans-serif; font-size:10.5px; font-weight:600;
-  padding:4px 7px; border-radius:4px; cursor:pointer;
-  border:1px solid var(--line); background:transparent; color:var(--ink-3);
-  white-space:nowrap; }}
-.sbtn:hover {{ border-color:var(--accent); color:var(--accent); }}
-.sbtn:focus-visible, .note:focus-visible, a:focus-visible, button:focus-visible,
+.sc {{ font-weight:700; color:var(--accent); font-size:13.5px; }}
+.cyc {{ font-family:"Public Sans",sans-serif; font-size:11.5px; font-weight:600;
+  padding:5px 10px; border-radius:5px; cursor:pointer; min-width:106px;
+  border:1px solid var(--line); background:var(--surface-2); color:var(--ink-3);
+  white-space:nowrap; text-align:center; }}
+.cyc:hover {{ border-color:var(--accent); color:var(--accent); }}
+.cyc:focus-visible, .note:focus-visible, a:focus-visible, button:focus-visible,
 input:focus-visible, select:focus-visible {{
   outline:2px solid var(--accent); outline-offset:1px; }}
-tr[data-status="mailed"] .sbtn[data-set="mailed"] {{ background:var(--st-mailed); color:#fff; border-color:var(--st-mailed); }}
-tr[data-status="replied"] .sbtn[data-set="replied"] {{ background:var(--st-replied); color:#fff; border-color:var(--st-replied); }}
-tr[data-status="quoted"] .sbtn[data-set="quoted"] {{ background:var(--st-quoted); color:#fff; border-color:var(--st-quoted); }}
-tr[data-status="won"] .sbtn[data-set="won"] {{ background:var(--st-won); color:#fff; border-color:var(--st-won); }}
-tr[data-status="dead"] .sbtn[data-set="dead"] {{ background:var(--st-dead); color:#fff; border-color:var(--st-dead); }}
+tr[data-status="mailed"] .cyc {{ background:var(--st-mailed); color:#fff; border-color:var(--st-mailed); }}
+tr[data-status="replied"] .cyc {{ background:var(--st-replied); color:#fff; border-color:var(--st-replied); }}
+tr[data-status="quoted"] .cyc {{ background:var(--st-quoted); color:#fff; border-color:var(--st-quoted); }}
+tr[data-status="won"] .cyc {{ background:var(--st-won); color:#fff; border-color:var(--st-won); }}
+tr[data-status="dead"] .cyc {{ background:var(--st-dead); color:#fff; border-color:var(--st-dead); }}
 tr[data-status="dead"] {{ opacity:.5; }}
 tr[data-status="won"] .addr {{ color:var(--st-won); }}
 .note {{ font-family:"Public Sans",sans-serif; font-size:12px; color:var(--ink);
@@ -354,10 +346,15 @@ footer b {{ color:var(--ink-2); font-weight:600; }}
 
 <div class="tablewrap">
 <table>
+<colgroup>
+  <col style="width:34%"><col style="width:11%"><col style="width:7%">
+  <col style="width:8%"><col style="width:6%"><col style="width:6%">
+  <col style="width:12%"><col style="width:12%"><col style="width:4%">
+</colgroup>
 <thead><tr>
-  <th></th><th>Address</th><th>Pool built</th><th class="c-num">Pool m&sup2;</th>
-  <th class="c-num">Block m&sup2;</th><th>Score</th><th class="c-conf">Conf</th>
-  <th>Outreach status</th><th>Note</th><th></th>
+  <th>Address</th><th>Pool built</th><th class="c-num">Pool m&sup2;</th>
+  <th class="c-num">Block m&sup2;</th><th class="c-num">Score</th>
+  <th class="c-conf">Conf</th><th>Status</th><th>Note</th><th></th>
 </tr></thead>
 <tbody id="tb" artifact-sync>
 {rows}
@@ -378,6 +375,11 @@ footer b {{ color:var(--ink-2); font-weight:600; }}
   var KEY = "poolside-ledger-v1";
   var tb = document.getElementById("tb");
   var rows = Array.prototype.slice.call(tb.querySelectorAll("tr.row"));
+  var ORDER0 = ["new", "mailed", "replied", "quoted", "won", "dead"];
+  var LABEL = {{
+    new: "Not contacted", mailed: "Mailed", replied: "Replied",
+    quoted: "Quoted", won: "Won", dead: "Not interested"
+  }};
   var local = {{}};
   try {{ local = JSON.parse(localStorage.getItem(KEY) || "{{}}"); }} catch (e) {{ local = {{}}; }}
 
@@ -386,7 +388,11 @@ footer b {{ color:var(--ink-2); font-weight:600; }}
   rows.forEach(function (tr) {{
     var rec = local[tr.dataset.key];
     if (!rec) return;
-    if (tr.dataset.status === "new" && rec.s && rec.s !== "new") tr.dataset.status = rec.s;
+    if (tr.dataset.status === "new" && rec.s && rec.s !== "new") {{
+      tr.dataset.status = rec.s;
+      var cb = tr.querySelector(".cyc");
+      if (cb) cb.textContent = LABEL[rec.s] || rec.s;
+    }}
     var n = tr.querySelector(".note");
     if (n && !n.value && rec.n) n.value = rec.n;
   }});
@@ -427,11 +433,21 @@ footer b {{ color:var(--ink-2); font-weight:600; }}
     document.getElementById("empty").hidden = shown !== 0;
   }}
 
+  var ORDER = ORDER0;
+
+  function setStatus(tr, st) {{
+    tr.dataset.status = st;                       // gesture-driven change
+    tr.querySelector(".cyc").textContent = LABEL[st];
+  }}
+
   tb.addEventListener("click", function (ev) {{
-    var b = ev.target.closest(".sbtn");
+    var b = ev.target.closest(".cyc");
     if (!b) return;
     var tr = b.closest("tr.row");
-    tr.dataset.status = b.dataset.set;   // gesture-driven attribute change
+    var i = ORDER.indexOf(tr.dataset.status || "new");
+    // Shift-click steps back, for when you overshoot.
+    i = (i + (ev.shiftKey ? ORDER.length - 1 : 1)) % ORDER.length;
+    setStatus(tr, ORDER[i]);
     save();
     counts();
     applyFilters();
