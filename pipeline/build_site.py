@@ -29,18 +29,24 @@ ERA = [(1978, "pre-1979"), (1986, "1979-86"), (1991, "1987-91"),
        (1998, "1992-98"), (2005, "1999-2005")]
 
 # Pool condition, from comparing current imagery against the old captures.
-CONDITION_CODE = {"neglected": 0, "untouched": 1, "renovated_pre2005": 2,
-                  "dark_throughout": 3, "unknown": 4, "not_visible": 5}
+CONDITION_CODE = {"neglected": 0, "original_finish": 1, "renovated_pre2005": 2,
+                  "mid_tone": 3, "dark_throughout": 4, "unknown": 5,
+                  "not_visible": 6}
 CONDITION = [
-    (0, "Green water", "c0", "Water reads green in current imagery - nobody "
-        "maintaining a pool lets it go green. Strongest sign of deferred work."),
-    (1, "Original finish", "c1", "Still the pale turquoise of a marbelite or "
-        "painted interior, with no tone change across captures. Never resurfaced."),
-    (2, "Redone pre-2005", "c2", "Went dark between 1998 and 2005. Pool interiors "
-        "last 15-25 years, so this one is due again."),
-    (3, "Always dark", "c3", "Dark in every capture. Could be an early dark "
-        "finish or deep shade - cannot be told apart."),
-    (4, "Unconfirmed", "c4", "Not enough imagery to judge the interior."),
+    (0, "Green water", "c0", "Green outweighs blue in current imagery. Nobody "
+        "maintaining a pool lets it go green, so this is the strongest sign of "
+        "deferred maintenance."),
+    (1, "Original look", "c1", "Reads as the pale turquoise of a marbelite or "
+        "painted interior. Strong sign the interior has never been redone - "
+        "though a resurfacing back to a pale finish would look the same."),
+    (2, "Redone pre-2005", "c2", "Was pale in an early capture and is dark now, "
+        "with the change already done by 2005. Interiors last 15-25 years, so "
+        "this one is due again."),
+    (3, "Mid tone", "c3", "Between the pale and dark bands. Genuinely ambiguous "
+        "from the air, so no claim is made either way."),
+    (4, "Modern dark", "c4", "Deep navy as far back as the imagery goes - a "
+        "modern finish, or a pool always in deep shade."),
+    (5, "Unconfirmed", "c5", "Imagery could not be read reliably here."),
 ]
 THIS_YEAR = date.today().year
 

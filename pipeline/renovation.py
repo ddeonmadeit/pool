@@ -45,7 +45,7 @@ CUR_ZOOM = 20
 # OSM pool outlines are traced from recent imagery, so they should already sit
 # on the current capture. A tight window stops the search wandering onto a
 # neighbour's pool; historical captures still get the wide one.
-CUR_SEARCH_M = 3.0
+CUR_SEARCH_M = 2.5
 
 
 def current_tile(z, x, y):
@@ -182,7 +182,12 @@ def probe(getter, ring, z=IMAGERY_ZOOM, search_m=10.0, min_frac=0.30):
     if winhave.mean() < 0.5:
         return None
 
-    wm = sample_water_mask(win) & winhave
+    # Alignment uses the permissive mask from the dating detector, which
+    # accepts dark blue as water. Using the strict tone mask here meant a navy
+    # resurfaced pool matched nothing, drifted to the edge of the search window
+    # and was written off as unmeasurable - biasing exactly the renovated pools
+    # out of the result. Tone is still read separately, from the eroded median.
+    wm = av.water_mask(win) & winhave
     oy0, ox0 = miny - wy0, minx - wx0
 
     # Find the placement of the footprint with the most water under it.
@@ -288,9 +293,17 @@ def turquoise_index(rr, gg, bb):
 
 
 # Tone bands, calibrated against visual inspection of NSW imagery.
-NAVY_MAX = 0.45      # below this the water reads deep blue: a modern finish
-ORIGINAL_MIN = 0.60  # above this it reads pale turquoise: an original finish
-GREEN_MIN = 1.05     # above this it is green water, i.e. a neglected pool
+# Calibrated by rendering 30 pools spread across the whole index range at z20
+# and reading off where the visual break actually falls, rather than guessing.
+# Below ~0.55 the water is unmistakably deep navy and usually sits in modern
+# hard landscaping; above ~0.80 it is the pale turquoise of an original
+# marbelite or painted interior. The band between is genuinely ambiguous and is
+# not claimed either way - the first cut of this used 0.60 as "original", which
+# swept the entire mid-blue band into the prime list and was the main reason
+# that list came out implausibly large.
+NAVY_MAX = 0.55      # below this the water reads deep blue: a modern finish
+ORIGINAL_MIN = 0.80  # above this it reads pale turquoise: an original finish
+GREEN_MIN = 1.10     # above this green outweighs blue: algal, neglected water
 SURROUND_CHANGE = 34.0   # RGB distance in the surround ring that counts as work
 GONE_FRAC = 0.15     # below this there is no longer open water at the footprint
 
@@ -362,7 +375,7 @@ def classify(p98, p05, pnow):
         return out
 
     if tinow >= ORIGINAL_MIN:
-        out["state"] = "untouched"          # pale turquoise: original interior
+        out["state"] = "original_finish"    # pale turquoise: original interior
         return out
 
     if tinow >= NAVY_MAX:
@@ -385,7 +398,7 @@ def classify(p98, p05, pnow):
 # How much each state is worth as a renovation prospect, 0-1.
 STATE_SCORE = {
     "neglected": 1.00,
-    "untouched": 0.90,
+    "original_finish": 0.90,
     "renovated_pre2005": 0.55,
     "mid_tone": 0.40,
     "dark_throughout": 0.30,

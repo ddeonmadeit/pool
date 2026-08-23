@@ -20,9 +20,10 @@ JS = r"""
   var A = 0, S = 1, PC = 2, YR = 3, SC = 4, CF = 5, AR = 6, LOT = 7,
       NP = 8, MQ = 9, LAT = 10, LON = 11, CON = 12, CD = 13;
   // Pool condition codes, mirroring CONDITION_CODE in build_site.py.
-  var COND = [["Green water", "c0"], ["Original finish", "c1"],
-              ["Redone pre-2005", "c2"], ["Always dark", "c3"],
-              ["Unconfirmed", "c4"], ["Not visible", "c5"]];
+  var COND = [["Green water", "c0"], ["Original look", "c1"],
+              ["Redone pre-2005", "c2"], ["Mid tone", "c3"],
+              ["Modern dark", "c4"], ["Unconfirmed", "c5"],
+              ["Not visible", "c6"]];
   // The two states worth posting to: never resurfaced, or visibly neglected.
   var PRIME = [0, 1];
   var ERA = { 1978: ["pre-1979", "e78"], 1986: ["1979-86", "e86"],
