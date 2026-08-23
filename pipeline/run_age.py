@@ -18,6 +18,11 @@ OUT = os.path.join(DATA, "pool_ages.jsonl")
 
 _lock = threading.Lock()
 
+# The bulk pass only has to answer "is this pool 20+ years old?". Pinning the
+# exact decade is a separate, much smaller job run over the shortlist.
+REFINE = os.environ.get("AGE_REFINE", "0") == "1"
+SKIP_UNADDRESSED = os.environ.get("AGE_ALL", "0") != "1"
+
 
 def load_done():
     done = set()
@@ -38,6 +43,11 @@ def main():
     with open(src) as f:
         pools = json.load(f)["pools"]
 
+    # A pool with no address can never become a mailable lead, so do not spend
+    # imagery fetches on one.
+    if SKIP_UNADDRESSED:
+        pools = [p for p in pools if p.get("address")]
+
     done = load_done()
     todo = [p for p in pools if p["osm_id"] not in done]
     print(f"{len(pools)} pools, {len(done)} already dated, {len(todo)} to do",
@@ -49,7 +59,7 @@ def main():
 
     def work(p):
         try:
-            earliest, obs = av.date_pool(p["ring"])
+            earliest, obs = av.date_pool(p["ring"], refine=REFINE)
             return {
                 "osm_id": p["osm_id"],
                 "earliest_year": earliest,

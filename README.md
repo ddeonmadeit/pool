@@ -60,7 +60,9 @@ pipeline/
   fetch_pools.py      OSM -> pool polygons + shape metrics
   geocode.py          NSW cadastre -> street address + block size
   age_verify.py       historical imagery -> pool age (the core of it)
-  run_age.py          parallel, resumable driver for age_verify
+  run_age.py          bulk qualifying pass (is this pool 20+ years old?)
+  refine_ages.py      walks the shortlist back to pin down the decade
+  suburbs.py          suburb -> postcode and council
   score.py            lead ranking
   enrich_contacts.py  business contacts for commercial/strata pools only
   build_dashboard.py  dashboard HTML + CSV extracts
@@ -82,6 +84,15 @@ cd pipeline
 
 Every stage caches to `data/cache/` and is resumable - an interrupted run picks
 up where it stopped. A full Sydney run is dominated by imagery tile fetches.
+
+Dating runs in two passes for cost reasons. `run_age.py` answers only the
+qualifying question - visible in 1998, or failing that 2005? - which is one or
+two imagery lookups per pool. `refine_ages.py` then walks the shortlist back
+through 1991 / 1986 / 1978 to pin down the decade, because that is what
+separates a 1978 pool from a 1997 one at the top of the list. Refining every
+pool in Sydney would roughly triple the run for detail that only matters near
+the top, so `REFINE_LIMIT` bounds it. Both passes append to the same journal
+and later records win, so the shortlist can be extended by re-running.
 
 Tunables live in `config.py`: `SYDNEY_BBOX` to change the area, `GRID_STEP` for
 Overpass chunking, `TARGET_BUILT_BEFORE` for the age cutoff. Worker counts come

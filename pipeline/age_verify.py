@@ -218,38 +218,45 @@ def detect_year(year, ring):
     }
 
 
-def date_pool(ring):
-    """Return (earliest_confirmed_year, observations) using a cost-aware ladder.
+def date_pool(ring, refine=True):
+    """Return (earliest_confirmed_year, observations).
 
     1998 is checked first: it is the best-aligned capture and a hit there
     already proves the pool is nearly 30 years old. Only if 1998 is negative do
-    we fall back to 2005 to catch pools built in between. When 1998 is positive
-    we walk further back to find out *how* old the pool is, which drives lead
-    priority - a 1978 pool is a far stronger renovation prospect than a 2004 one.
+    we fall back to 2005 to catch pools built in between.
+
+    `refine` controls the expensive half. Walking back through 1991 / 1986 /
+    1978 tells us *how* old a pool is, which drives lead priority - but it costs
+    up to three extra imagery lookups per pool. Over a whole city that dominates
+    the run, so the bulk pass qualifies with refine=False and only the pools
+    that actually make the shortlist are refined afterwards.
     """
     obs = []
-    earliest = None
 
     r98 = detect_year(1998, ring)
     obs.append(r98)
     if r98["status"] == "present":
         earliest = 1998
-        for y in (1991, 1986, 1978):
-            r = detect_year(y, ring)
-            obs.append(r)
-            if r["status"] == "present":
-                earliest = y
-            elif r["status"] == "absent":
-                break
+        if refine:
+            earliest, obs = refine_pool(ring, obs)
         return earliest, obs
 
     r05 = detect_year(2005, ring)
     obs.append(r05)
     if r05["status"] == "present":
         return 2005, obs
-
-    # Nothing in 1998 or 2005. If neither year had imagery we simply do not
-    # know; if imagery existed and showed no water, the pool post-dates 2005.
-    if r98["status"] == "no_imagery" and r05["status"] == "no_imagery":
-        return None, obs
     return None, obs
+
+
+def refine_pool(ring, obs):
+    """Walk back from 1998 to find the earliest capture still showing the pool."""
+    earliest = 1998
+    out = list(obs)
+    for y in (1991, 1986, 1978):
+        r = detect_year(y, ring)
+        out.append(r)
+        if r["status"] == "present":
+            earliest = y
+        elif r["status"] == "absent":
+            break
+    return earliest, out
