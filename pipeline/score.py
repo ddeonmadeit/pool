@@ -64,23 +64,26 @@ def shape_era_score(p):
     aspect = p.get("aspect")
     area = p.get("area_m2") or 0
     if fill is None:
-        return 0.5
-    s = 0.0
+        return 0.4
+    # Roughly half of Sydney's mapped pools are traced as plain rectangles, and
+    # a rectangle is not evidence of a *new* pool - it is often just a simplified
+    # trace. So the baseline is neutral and only genuine curvature adds to it.
+    s = 0.30
     # Free-form / kidney shapes fill their bounding rectangle poorly.
     if fill < 0.72:
-        s += 0.55
-    elif fill < 0.84:
         s += 0.35
+    elif fill < 0.84:
+        s += 0.22
     elif fill < 0.92:
-        s += 0.15
+        s += 0.10
     # Narrow high-aspect lap pools are a modern signature.
     if aspect and aspect >= 3.2:
-        s -= 0.2
+        s -= 0.20
     elif aspect and aspect <= 2.2:
-        s += 0.2
+        s += 0.12
     # Classic 8x4-ish family pool footprint.
     if 28 <= area <= 90:
-        s += 0.25
+        s += 0.15
     return round(max(0.0, min(s, 1.0)), 2)
 
 
