@@ -35,8 +35,15 @@ from config import IMAGERY_ZOOM, USER_AGENT
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 CUR_CACHE = os.path.join(HERE, "..", "data", "cache", "tiles", "current")
-CUR_SERVICE = ("https://maps.six.nsw.gov.au/arcgis/rest/services"
-               "/public/NSW_Imagery/MapServer")
+# Two services publish the current mosaic. The SIX one is the obvious choice
+# but its tile cache is patchy - sampled across Sydney it answered for only
+# 57% of leads at z20 and 75% even at z18, which was sending nearly a third of
+# the list to "unknown". The portal.spatial cache answered 60/60 at every zoom
+# tested, at equivalent quality, so it is the primary and SIX is the fallback.
+CUR_SERVICE = ("https://portal.spatial.nsw.gov.au/tileservices"
+               "/Hosted/NSW_Imagery/MapServer")
+CUR_FALLBACK = ("https://maps.six.nsw.gov.au/arcgis/rest/services"
+                "/public/NSW_Imagery/MapServer")
 
 # Current imagery is 7 cm at source. Served at z18 it is dithered badly enough
 # to corrupt a colour average (mean adjacent-pixel difference 22, against 7.9 at
@@ -59,13 +66,18 @@ def current_tile(z, x, y):
             return np.asarray(Image.open(p).convert("RGB"))
         except Exception:  # noqa: BLE001 - corrupt cache entry
             os.remove(p)
-    try:
-        req = urllib.request.Request("%s/tile/%d/%d/%d" % (CUR_SERVICE, z, y, x),
-                                     headers={"User-Agent": USER_AGENT})
-        with urllib.request.urlopen(req, timeout=30) as r:
-            raw = r.read()
-        im = Image.open(io.BytesIO(raw)).convert("RGB")
-    except Exception:  # noqa: BLE001 - no coverage here
+    raw = None
+    for base in (CUR_SERVICE, CUR_FALLBACK):
+        try:
+            req = urllib.request.Request("%s/tile/%d/%d/%d" % (base, z, y, x),
+                                         headers={"User-Agent": USER_AGENT})
+            with urllib.request.urlopen(req, timeout=30) as r:
+                raw = r.read()
+            im = Image.open(io.BytesIO(raw)).convert("RGB")
+            break
+        except Exception:  # noqa: BLE001 - try the other cache before giving up
+            raw = None
+    if raw is None:
         open(p, "wb").close()
         return None
     with open(p, "wb") as f:
