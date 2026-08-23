@@ -195,6 +195,14 @@ tbody tr.lead:hover td{background:rgba(255,248,235,.028);}
 .e91{background:rgba(197,140,44,.13);color:#dbb26a;border:1px solid rgba(197,140,44,.22);}
 .e98{background:rgba(127,143,106,.15);color:#a8bb8a;border:1px solid rgba(127,143,106,.25);}
 .e05{background:rgba(106,133,143,.15);color:#8fb2bd;border:1px solid rgba(106,133,143,.25);}
+/* Pool condition. Green water and an original finish are the prospects, so they
+   carry the signal colour; already-done and unconfirmable states stay muted. */
+.c0{background:rgba(127,175,90,.16);color:#a8d47e;border:1px solid rgba(127,175,90,.3);}
+.c1{background:rgba(197,96,44,.15);color:var(--signal-glow);border:1px solid rgba(197,96,44,.3);}
+.c2{background:rgba(197,140,44,.12);color:#c9a765;border:1px solid rgba(197,140,44,.2);}
+.c3{background:rgba(120,120,130,.12);color:#8b8b95;border:1px solid rgba(120,120,130,.2);}
+.c4{background:rgba(100,95,88,.12);color:var(--cream-500);border:1px solid rgba(100,95,88,.2);}
+.c5{background:rgba(90,80,80,.12);color:#7a6f6f;border:1px solid rgba(90,80,80,.2);}
 .ago{font-family:"IBM Plex Mono",monospace;font-size:.58rem;color:var(--cream-500);
   margin-left:6px;}
 .tag{font-family:"IBM Plex Mono",monospace;font-size:.52rem;font-weight:600;

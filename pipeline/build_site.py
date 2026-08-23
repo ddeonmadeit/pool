@@ -27,6 +27,21 @@ ROOT = os.path.join(HERE, "..")
 
 ERA = [(1978, "pre-1979"), (1986, "1979-86"), (1991, "1987-91"),
        (1998, "1992-98"), (2005, "1999-2005")]
+
+# Pool condition, from comparing current imagery against the old captures.
+CONDITION_CODE = {"neglected": 0, "untouched": 1, "renovated_pre2005": 2,
+                  "dark_throughout": 3, "unknown": 4, "not_visible": 5}
+CONDITION = [
+    (0, "Green water", "c0", "Water reads green in current imagery - nobody "
+        "maintaining a pool lets it go green. Strongest sign of deferred work."),
+    (1, "Original finish", "c1", "Still the pale turquoise of a marbelite or "
+        "painted interior, with no tone change across captures. Never resurfaced."),
+    (2, "Redone pre-2005", "c2", "Went dark between 1998 and 2005. Pool interiors "
+        "last 15-25 years, so this one is due again."),
+    (3, "Always dark", "c3", "Dark in every capture. Could be an early dark "
+        "finish or deep shade - cannot be told apart."),
+    (4, "Unconfirmed", "c4", "Not enough imagery to judge the interior."),
+]
 THIS_YEAR = date.today().year
 
 
@@ -67,6 +82,7 @@ def pack(leads):
             round(p.get("lat"), 5),
             round(p.get("lon"), 5),
             contact_str(p),
+            CONDITION_CODE.get(p.get("reno_state"), 5),
         ])
     return out
 
@@ -94,7 +110,8 @@ def write_csvs(leads, outdir):
     cols = ["address", "suburb", "postcode", "council", "earliest_confirmed_year",
             "min_age_years", "lead_score", "age_confidence", "address_match",
             "area_m2", "lot_m2", "length_m", "width_m", "rect_fill", "category",
-            "pools_at_address", "contact_name", "contact_phone", "contact_email",
+            "pools_at_address", "reno_state", "ti_now", "contact_name",
+            "contact_phone", "contact_email",
             "contact_website", "lat", "lon", "osm_id"]
     for p in leads:
         c = p.get("contact") or {}
@@ -123,6 +140,20 @@ def build(leads, with_downloads=False):
     subopts = "".join('<option value="%s">%s</option>' % (html.escape(s), html.escape(s))
                       for s in subs)
     centroid_payload = json.dumps(suburb_centroids(leads), separators=(",", ":"))
+    cond_counts = Counter(p.get("reno_state") for p in leads)
+    condlegend = "".join(
+        '<span title="%s"><span class="pill %s">%s</span> <b>%s</b></span>'
+        % (html.escape(desc), cls, lbl,
+           format(cond_counts.get(k, 0), ","))
+        for code, lbl, cls, desc in CONDITION
+        for k in [next((kk for kk, vv in CONDITION_CODE.items() if vv == code), None)]
+        if cond_counts.get(k))
+    condopts = "".join('<option value="%d">%s</option>' % (code, lbl)
+                       for code, lbl, cls, desc in CONDITION
+                       for k in [next((kk for kk, vv in CONDITION_CODE.items()
+                                       if vv == code), None)]
+                       if cond_counts.get(k))
+    prime = sum(cond_counts.get(k, 0) for k in ("neglected", "untouched"))
     era_counts = Counter(p.get("earliest_confirmed_year") for p in leads)
     legend = "".join(
         '<span><span class="pill e%s">%s</span> <b>%s</b></span>'
@@ -156,10 +187,12 @@ def build(leads, with_downloads=False):
 </div>
 
 <div class="eyebrow"><span class="dash"></span>Sydney &middot; pool renovation prospects</div>
-<h1>Every Sydney pool we can prove is <em>over 20 years old</em>.</h1>
+<h1>Sydney pools over 20 years old that <em>nobody has renovated</em>.</h1>
 <p class="lede">__N__ properties whose pool shows open water in NSW government aerial
-imagery from 2005 or earlier. Each one carries a street address and postcode.
-Heaviest in __COUNCILS__. Click a status key as you work the list &mdash; it saves in this browser.</p>
+imagery from 2005 or earlier, cross-checked against current imagery to weed out the
+ones already redone. __PRIME__ are prime prospects &mdash; still on an original pale
+interior, or sitting green. Heaviest in __COUNCILS__. Click a status key as you work
+the list; it saves in this browser.</p>
 
 <div class="stats">
   <div class="stat n"><div class="v" id="k-new">0</div><div class="k">Not contacted</div></div>
@@ -171,9 +204,15 @@ Heaviest in __COUNCILS__. Click a status key as you work the list &mdash; it sav
 </div>
 
 <div class="legend">__LEGEND__</div>
+<div class="legend">__CONDLEGEND__</div>
 
 <div class="controls">
   <input type="search" id="q" placeholder="Search address, suburb or postcode&hellip;" aria-label="Search">
+  <span class="ctl-label">Condition</span>
+  <select id="f-cond" aria-label="Pool condition">
+    <option value="prime">Prime &mdash; original or green</option>
+    <option value="">Any condition</option>__CONDOPTS__
+  </select>
   <span class="ctl-label">Suburb</span>
   <select id="f-sub" aria-label="Suburb"><option value="">All</option>__SUBOPTS__</select>
   <span class="ctl-label">Built</span>
@@ -216,13 +255,15 @@ Heaviest in __COUNCILS__. Click a status key as you work the list &mdash; it sav
   <div class="scroller" id="scroller">
     <table>
       <colgroup>
-        <col style="width:27%"><col style="width:12%"><col style="width:6%">
-        <col style="width:7%"><col style="width:7%"><col style="width:6%">
-        <col style="width:6%"><col style="width:12%"><col style="width:13%"><col style="width:4%">
+        <col style="width:24%"><col style="width:11%"><col style="width:11%">
+        <col style="width:5%"><col style="width:6%"><col style="width:6%">
+        <col style="width:5%"><col style="width:5%"><col style="width:11%">
+        <col style="width:12%"><col style="width:4%">
       </colgroup>
       <thead><tr>
         <th class="sortable" data-sort="suburb">Address<span class="ind"></span></th>
         <th class="sortable" data-sort="age">Pool built<span class="ind"></span></th>
+        <th class="sortable" data-sort="cond">Condition<span class="ind"></span></th>
         <th class="sortable num" data-sort="area">Pool m&sup2;<span class="ind"></span></th>
         <th class="sortable num" data-sort="lot">Block m&sup2;<span class="ind"></span></th>
         <th class="sortable num" data-sort="distance">Dist<span class="ind"></span></th>
@@ -230,9 +271,9 @@ Heaviest in __COUNCILS__. Click a status key as you work the list &mdash; it sav
         <th class="num">Conf</th>
         <th>Status</th><th>Note</th><th></th>
       </tr></thead>
-      <tbody id="pads-top"><tr id="pad-top" style="height:0"><td colspan="10"></td></tr></tbody>
+      <tbody id="pads-top"><tr id="pad-top" style="height:0"><td colspan="11"></td></tr></tbody>
       <tbody id="tb"></tbody>
-      <tbody id="pads-bot"><tr id="pad-bot" style="height:0"><td colspan="10"></td></tr></tbody>
+      <tbody id="pads-bot"><tr id="pad-bot" style="height:0"><td colspan="11"></td></tr></tbody>
     </table>
     <div class="empty" id="empty" hidden>No leads match these filters.</div>
   </div>
@@ -242,8 +283,18 @@ Heaviest in __COUNCILS__. Click a status key as you work the list &mdash; it sav
   <b>How the age is proven</b> &mdash; every pool footprint is sampled against NSW Spatial
   Services historical aerial imagery. A lead appears here only if open water showed at its
   mapped position in 1998 or 2005 imagery, so the pool pre-dates 2006.<br>
-  <b>Score</b> blends confirmed age (50%), pre-2000 shape signature (18%), block size (14%)
-  and imagery confidence (18%). <b>Conf</b> is how clean the imagery read was, 0&ndash;1;
+  <b>Condition</b> compares the pool in current NSW imagery (2020&ndash;2023, 7&nbsp;cm)
+  against the 1998 and 2005 captures. Interiors built in the 1970s&ndash;90s were marbelite
+  or painted render and read pale turquoise from above; modern pebblecrete, dark quartz
+  and glass mosaic read deep navy. A pool that moved into the navy band has been
+  resurfaced &mdash; recently if it happened after 2005, and those are dropped down the
+  list. Properties where no open water is visible today are removed altogether. Surround
+  paving was tested as a second signal and rejected: two captures of an untouched yard
+  differ more from season and sun angle than from actual work. A resurfacing that went
+  back to a pale finish will read as original, so this under-detects renovation rather
+  than inventing it.<br>
+  <b>Score</b> blends confirmed age (34%), pool condition (34%), pre-2000 shape
+  signature (11%), block size (9%) and imagery confidence (12%). <b>Conf</b> is how clean the imagery read was, 0&ndash;1;
   below 0.45, check the map link before posting. <b>~</b> means the address came from the
   nearest parcel rather than one containing the pool.<br>
   <b>Age yrs</b> filters on exact years since the pool's earliest confirmed capture, finer
@@ -265,6 +316,9 @@ Heaviest in __COUNCILS__. Click a status key as you work the list &mdash; it sav
    .replace("__CENTROIDS__", centroid_payload) \
    .replace("__SUBOPTS__", subopts).replace("__ERAOPTS__", eraopts) \
    .replace("__LEGEND__", legend) \
+   .replace("__CONDLEGEND__", condlegend) \
+   .replace("__CONDOPTS__", condopts) \
+   .replace("__PRIME__", format(prime, ",")) \
    .replace("__COUNCILS__", top_councils) \
    .replace("__OLDEST__", str(oldest) if oldest else "n/a") \
    .replace("__DATE__", str(date.today())) \

@@ -18,7 +18,13 @@ JS = r"""
                 quoted: "Quoted", won: "Won", dead: "Not interested" };
   // Column order in each packed record.
   var A = 0, S = 1, PC = 2, YR = 3, SC = 4, CF = 5, AR = 6, LOT = 7,
-      NP = 8, MQ = 9, LAT = 10, LON = 11, CON = 12;
+      NP = 8, MQ = 9, LAT = 10, LON = 11, CON = 12, CD = 13;
+  // Pool condition codes, mirroring CONDITION_CODE in build_site.py.
+  var COND = [["Green water", "c0"], ["Original finish", "c1"],
+              ["Redone pre-2005", "c2"], ["Always dark", "c3"],
+              ["Unconfirmed", "c4"], ["Not visible", "c5"]];
+  // The two states worth posting to: never resurfaced, or visibly neglected.
+  var PRIME = [0, 1];
   var ERA = { 1978: ["pre-1979", "e78"], 1986: ["1979-86", "e86"],
               1991: ["1987-91", "e91"], 1998: ["1992-98", "e98"],
               2005: ["1999-2005", "e05"] };
@@ -64,6 +70,7 @@ JS = r"""
       fEra = document.getElementById("f-era"), fSt = document.getElementById("f-st"),
       fCon = document.getElementById("f-con"),
       fAgeMin = document.getElementById("f-age-min"), fAgeMax = document.getElementById("f-age-max"),
+      fCond = document.getElementById("f-cond"),
       fCenter = document.getElementById("f-center"), fRadius = document.getElementById("f-radius"),
       geoBtn = document.getElementById("geo");
 
@@ -117,12 +124,15 @@ JS = r"""
   function rebuild() {
     var term = q.value.trim().toLowerCase();
     var sub = fSub.value, era = fEra.value, st = fSt.value, con = fCon.value;
+    var cond = fCond.value;
     var ageMin = fAgeMin.value ? parseInt(fAgeMin.value, 10) : null;
     var ageMax = fAgeMax.value ? parseInt(fAgeMax.value, 10) : null;
     var radius = (centerPos && fRadius.value) ? parseFloat(fRadius.value) : null;
     var out = [];
     for (var i = 0; i < DATA.length; i++) {
       var d = DATA[i];
+      if (cond === "prime") { if (PRIME.indexOf(d[CD]) === -1) continue; }
+      else if (cond !== "" && String(d[CD]) !== cond) continue;
       if (sub && d[S] !== sub) continue;
       if (era && String(d[YR]) !== era) continue;
       if (st && statusOf(i) !== st) continue;
@@ -146,6 +156,8 @@ JS = r"""
       if (da == null && db == null) return 0;
       if (da == null) return 1; if (db == null) return -1;
       return (da - db) * dir; });
+    else if (sortKey === "cond") out.sort(function (a, b) {
+      return (DATA[a][CD] - DATA[b][CD]) * dir; });
     else if (sortKey === "suburb") out.sort(function (a, b) {
       return DATA[a][S] < DATA[b][S] ? -dir : DATA[a][S] > DATA[b][S] ? dir : 0; });
     view = out;
@@ -177,6 +189,7 @@ JS = r"""
       var approx = d[MQ] === 1 ? '<span class="approx" title="Matched to the nearest parcel, not one containing the pool — check the map link">~</span>' : "";
       var meta = esc(d[S]) + (d[PC] ? " · " + d[PC] : "");
       if (d[CON]) meta += " · " + d[CON];
+      var cd = COND[d[CD]] || COND[4];
       var dk = distKm(i);
       var distStr = dk == null ? "—" : (dk < 10 ? dk.toFixed(1) : Math.round(dk)) + " km";
       html += '<tr class="lead" data-i="' + i + '" data-s="' + stt + '">' +
@@ -184,6 +197,7 @@ JS = r"""
         '<span class="meta">' + meta + '</span></td>' +
         '<td><span class="pill ' + era[1] + '">' + era[0] + '</span>' +
         '<span class="ago">' + age + '+ yr</span></td>' +
+        '<td><span class="pill ' + cd[1] + '">' + cd[0] + '</span></td>' +
         '<td class="num">' + d[AR] + '</td>' +
         '<td class="num">' + d[LOT] + '</td>' +
         '<td class="num dist">' + distStr + '</td>' +
@@ -248,12 +262,13 @@ JS = r"""
     noteT = setTimeout(function () { persist(); flash("Saved"); }, 450);
   });
 
-  [q, fSub, fEra, fSt, fCon, fAgeMin, fAgeMax, fRadius].forEach(function (el) {
+  [q, fSub, fEra, fSt, fCon, fCond, fAgeMin, fAgeMax, fRadius].forEach(function (el) {
     el.addEventListener("input", rebuild);
     el.addEventListener("change", rebuild);
   });
   document.getElementById("reset").addEventListener("click", function () {
     q.value = ""; fSub.value = ""; fEra.value = ""; fSt.value = ""; fCon.value = "";
+    fCond.value = "prime";
     fAgeMin.value = ""; fAgeMax.value = ""; fRadius.value = ""; fCenter.value = "";
     setCenter(null, "");
     rebuild();
@@ -274,12 +289,13 @@ JS = r"""
   // ── backup ─────────────────────────────────────────────────────
   document.getElementById("export").addEventListener("click", function () {
     var rows = [["address", "suburb", "postcode", "pool_built_by", "min_age_years",
-                 "score", "status", "note"]];
+                 "condition", "score", "status", "note"]];
     for (var i = 0; i < DATA.length; i++) {
       var t = track[i];
       if (!t) continue;
       var d = DATA[i];
-      rows.push([d[A], d[S], d[PC] || "", d[YR], NOW - d[YR], d[SC],
+      rows.push([d[A], d[S], d[PC] || "", d[YR], NOW - d[YR],
+                 (COND[d[CD]] || COND[4])[0], d[SC],
                  t.s || "new", (t.n || "").replace(/"/g, "'")]);
     }
     if (rows.length === 1) { flash("Nothing tracked yet"); return; }

@@ -23,6 +23,22 @@ DATA = os.path.join(HERE, "..", "data")
 THIS_YEAR = date.today().year
 
 
+def load_reno():
+    """Latest renovation-state record per pool, keyed by osm_id."""
+    recs = {}
+    path = os.path.join(DATA, "pool_reno.jsonl")
+    if not os.path.exists(path):
+        return recs
+    with open(path) as f:
+        for line in f:
+            try:
+                r = json.loads(line)
+            except Exception:  # noqa: BLE001
+                continue
+            recs[r["osm_id"]] = r
+    return recs
+
+
 def load_ages():
     ages = {}
     path = os.path.join(DATA, "pool_ages.jsonl")
@@ -88,7 +104,7 @@ def shape_era_score(p):
     return round(max(0.0, min(s, 1.0)), 2)
 
 
-def score_pool(p, age_rec):
+def score_pool(p, age_rec, reno_rec=None):
     earliest = (age_rec or {}).get("earliest_year")
     obs = (age_rec or {}).get("observations", [])
     conf = evidence_confidence(obs)
@@ -132,8 +148,21 @@ def score_pool(p, age_rec):
 
     shape_pts = shape_era_score(p)
 
-    score = 100 * (0.50 * age_pts + 0.18 * shape_pts + 0.14 * lot_pts
-                   + 0.18 * conf)
+    # Whether the pool still looks original is the difference between a lead and
+    # a wasted letter, so it carries as much weight as age itself. Age says the
+    # pool is old enough to be due; this says nobody has already done the work.
+    from renovation import STATE_SCORE  # noqa: PLC0415 - avoids a cycle at import
+    state = (reno_rec or {}).get("state", "unknown")
+    reno_pts = STATE_SCORE.get(state, 0.3)
+    p["reno_state"] = state
+    p["reno_score"] = reno_pts
+    for k in ("ti_now", "ti_2005", "ti_1998", "water_frac_now",
+              "surround_delta_late"):
+        if reno_rec and reno_rec.get(k) is not None:
+            p[k] = round(reno_rec[k], 3) if isinstance(reno_rec[k], float) else reno_rec[k]
+
+    score = 100 * (0.34 * age_pts + 0.34 * reno_pts + 0.11 * shape_pts
+                   + 0.09 * lot_pts + 0.12 * conf)
     if p.get("address_match") == "nearby":
         score -= 3  # matched to the closest parcel, not one containing the pool
     p["earliest_confirmed_year"] = earliest
@@ -198,10 +227,11 @@ def main():
     with open(src) as f:
         pools = json.load(f)["pools"]
     ages = load_ages()
+    reno = load_reno()
 
     sub_lookup = load_suburb_lookup()
     for p in pools:
-        score_pool(p, ages.get(p["osm_id"]))
+        score_pool(p, ages.get(p["osm_id"]), reno.get(p["osm_id"]))
         p["suburb"] = suburb_of(p.get("address"))
         meta = sub_lookup.get((p["suburb"] or "").upper()) or {}
         p["postcode"] = meta.get("postcode")
@@ -215,6 +245,8 @@ def main():
         if p.get("earliest_confirmed_year")
         and (THIS_YEAR - p["earliest_confirmed_year"]) >= 20
         and p.get("mailable")
+        # No open water visible today means no pool to offer to renovate.
+        and p.get("reno_state") != "not_visible"
     ]
 
     # One letter per letterbox. Estates, schools and strata blocks can carry
@@ -256,6 +288,7 @@ def main():
     print("with postcode:", sum(1 for p in qualified if p.get("postcode")))
     print("top suburbs:", Counter(p["suburb"] for p in qualified).most_common(15))
     print("top councils:", Counter(p["council"] for p in qualified).most_common(10))
+    print("by pool condition:", Counter(p.get("reno_state") for p in qualified).most_common())
     print("WROTE", out)
 
 
