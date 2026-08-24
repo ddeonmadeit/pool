@@ -200,16 +200,39 @@ def suburb_of(address):
 def is_mailable(p):
     """Can Australia Post actually deliver a letter here?
 
-    Two things disqualify an address. Without a leading street number it is a
+    Three things disqualify an address. Without a leading street number it is a
     road, not a letterbox - the cadastre returns these for parcels that have no
-    principal address point. And a parcel over ten hectares is a landholding
-    rather than a back yard: Holsworthy army base comes back as a single 230
-    square kilometre title with thirteen pools inside it, which is neither one
-    letterbox nor a renovation prospect.
+    principal address point.
+
+    A parcel over 4,000 sq m is almost never a single house, however generous a
+    block the address suggests - this also catches landholding-scale outliers
+    like Holsworthy army base (a single 230 sq km title with thirteen pools
+    inside it) as a limiting case. Above 4,000 sqm the data is dominated by
+    apartment blocks, retirement villages and strata complexes on one shared
+    title - lots over that size turned out to carry a second pool on the same
+    address four times more often than lots in the normal house range (23% vs
+    5.8%), which is exactly the fingerprint of one title, many dwellings.
+
+    And "26/569 Smith St" is a strata unit number: the pool sits on land owned
+    by an owners corporation, not one titleholder to address a renovation
+    offer to.
+
+    A hyphenated house-number range ("203-225 Victoria St") was tried as a
+    fourth check and dropped - it also fires on genuine prestige-suburb
+    mansions with an old dual-lot title (several $20-70M Point Piper and
+    Bellevue Hill addresses use exactly this format), so it would have thrown
+    out real high-value leads to catch a handful of CBD towers. Land value per
+    square metre does not separate them either: a harbourfront lot in Point
+    Piper prices similarly to CBD commercial land. A few very high "Est.
+    value" outliers in dense inner-city postcodes may be commercial rather
+    than residential; this is disclosed rather than guessed at further.
     """
-    if not re.match(r"^\s*\d", p.get("address") or ""):
+    addr = p.get("address") or ""
+    if not re.match(r"^\s*\d", addr):
         return False
-    if (p.get("lot_m2") or 0) > 100000:
+    if (p.get("lot_m2") or 0) > 4000:
+        return False
+    if re.match(r"^\s*\d+[A-Za-z]?\s*/\s*\d", addr):
         return False
     return True
 
