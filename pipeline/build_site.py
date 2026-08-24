@@ -117,7 +117,8 @@ def write_csvs(leads, outdir):
     cols = ["address", "suburb", "postcode", "council", "earliest_confirmed_year",
             "min_age_years", "lead_score", "age_confidence", "address_match",
             "area_m2", "lot_m2", "length_m", "width_m", "rect_fill", "category",
-            "pools_at_address", "reno_state", "ti_now", "contact_name",
+            "pools_at_address", "reno_state", "ti_now",
+            "last_sale_date", "last_sale_price", "contact_name",
             "contact_phone", "contact_email",
             "contact_website", "lat", "lon", "osm_id"]
     for p in leads:
@@ -160,7 +161,6 @@ def build(leads, with_downloads=False):
                        for k in [next((kk for kk, vv in CONDITION_CODE.items()
                                        if vv == code), None)]
                        if cond_counts.get(k))
-    prime = sum(cond_counts.get(k, 0) for k in ("neglected", "original_finish"))
     era_counts = Counter(p.get("earliest_confirmed_year") for p in leads)
     legend = "".join(
         '<span><span class="pill e%s">%s</span> <b>%s</b></span>'
@@ -168,13 +168,8 @@ def build(leads, with_downloads=False):
         for y, lbl in ERA if era_counts.get(y))
     eraopts = "".join('<option value="%d">%s</option>' % (y, lbl)
                       for y, lbl in ERA if era_counts.get(y))
-    n = len(leads)
-    oldest = min((p["earliest_confirmed_year"] for p in leads
-                  if p.get("earliest_confirmed_year")), default=None)
-    councils = Counter(p.get("council") for p in leads if p.get("council"))
-    top_councils = ", ".join(c.title() for c, _ in councils.most_common(4))
 
-    return """<title>SDL Finder</title>
+    return """<title>Pool Finder</title>
 <meta name="description" content="Sydney properties with a pool confirmed 20+ years old from NSW government aerial imagery. Addresses, scoring and direct-mail outreach tracking.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -186,22 +181,9 @@ def build(leads, with_downloads=False):
 
 <div class="chassis">
   <span class="brand">SDL<i>FINDER</i></span>
+  <span class="pagetag">Pool Finder</span>
   <span class="spacer"></span>
-  <span class="readout">
-    __N__ verified leads &middot; aged by NSW aerial imagery<br>
-    <b>__OLDEST__</b> oldest confirmed capture &middot; built __DATE__
-  </span>
 </div>
-
-<div class="eyebrow"><span class="dash"></span>Sydney &middot; pool renovation prospects</div>
-<h1>Sydney pools over 20 years old with <em>no sign of renovation</em>.</h1>
-<p class="lede">__N__ properties whose pool shows open water in NSW government aerial
-imagery from 2005 or earlier, each one re-checked against current imagery to see
-whether it has since been redone. <strong>__PRIME__</strong> still read as an original
-pale interior or are sitting green &mdash; those are the prospects, and the list opens
-filtered to them and to an estimated property value of $2,000,000 or more. The rest are
-shown for completeness: about half read as a modern dark finish. Heaviest in
-__COUNCILS__. Click a status key as you work the list; it saves in this browser.</p>
 
 <div class="stats">
   <div class="stat n"><div class="v" id="k-new">0</div><div class="k">Not contacted</div></div>
@@ -219,7 +201,7 @@ __COUNCILS__. Click a status key as you work the list; it saves in this browser.
   <input type="search" id="q" placeholder="Search address, suburb or postcode&hellip;" aria-label="Search">
   <span class="ctl-label">Condition</span>
   <select id="f-cond" aria-label="Pool condition">
-    <option value="prime">Prime &mdash; original or green</option>
+    <option value="prime">Prime &mdash; due for work</option>
     <option value="">Any condition</option>__CONDOPTS__
   </select>
   <span class="ctl-label">Min value</span>
@@ -336,16 +318,11 @@ __COUNCILS__. Click a status key as you work the list; it saves in this browser.
    .replace("__LEGEND__", legend) \
    .replace("__CONDLEGEND__", condlegend) \
    .replace("__CONDOPTS__", condopts) \
-   .replace("__PRIME__", format(prime, ",")) \
-   .replace("__COUNCILS__", top_councils) \
-   .replace("__OLDEST__", str(oldest) if oldest else "n/a") \
-   .replace("__DATE__", str(date.today())) \
    .replace("__DOWNLOADS__", (
        '<b>Download</b> the full list: <a href="mail_merge.csv" download>mail_merge.csv</a> '
        '(addresses only, ready for a mail house) or '
        '<a href="leads_full.csv" download>leads_full.csv</a> (every field).<br>'
    ) if with_downloads else "") \
-   .replace("__N__", format(n, ","))
 
 
 def main():

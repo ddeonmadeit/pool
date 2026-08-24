@@ -106,6 +106,69 @@ def fetch_land_values(propids, workers=8):
     return {int(k): tuple(v) for k, v in out.items()}
 
 
+def fetch_last_sales(propids, workers=8):
+    """propid -> (sale_date:str, price:int) for each property's most recent sale.
+
+    Queried by propid rather than by re-crawling the metro bounding box. The
+    bbox crawl that calibrates the value ratios is deliberately cut off at three
+    years, so most leads would never appear in it - and a property whose pool
+    has never been renovated is exactly the kind unlikely to have sold recently.
+    Asking for `last_sale='Y'` by propid returns each property's latest sale
+    whatever its age, which is the thing worth knowing, at a fraction of the
+    requests.
+
+    Unlike the geometry-filtered queries against this service, an explicit
+    outFields list is accepted here - the 400 only applies when a geometry
+    filter is present.
+    """
+    os.makedirs(CACHE, exist_ok=True)
+    propids = sorted(set(p for p in propids if p))
+    out = {}
+    todo = []
+    for i in range(0, len(propids), BATCH):
+        batch = propids[i:i + BATCH]
+        path = os.path.join(CACHE, "ls_%d_%d.json" % (batch[0], len(batch)))
+        if os.path.exists(path):
+            with open(path) as f:
+                out.update(json.load(f))
+        else:
+            todo.append((batch, path))
+
+    def work(item):
+        batch, path = item
+        where = "propid IN (%s) AND last_sale='Y'" % ",".join(str(b) for b in batch)
+        d = http_get_json(SALES_LAYER + "/query", {
+            "f": "json", "where": where,
+            "outFields": "propid,price,sale_date", "returnGeometry": "false",
+        }, timeout=60, retries=3)
+        got = {}
+        for feat in d.get("features", []):
+            a = feat["attributes"]
+            sd, pr = a.get("sale_date"), a.get("price")
+            if sd:
+                got[str(a["propid"])] = [sd, pr]
+        with open(path, "w") as f:
+            json.dump(got, f)
+        return got
+
+    if todo:
+        print("fetching last sales: %d batches" % len(todo), flush=True)
+        failed = 0
+        with ThreadPoolExecutor(max_workers=workers) as ex:
+            futs = [ex.submit(work, it) for it in todo]
+            for i, fut in enumerate(as_completed(futs), 1):
+                try:
+                    out.update(fut.result())
+                except Exception as e:  # noqa: BLE001 - a bad batch must not sink the run
+                    failed += 1
+                    print("  batch failed (%s), retry next run" % type(e).__name__,
+                          flush=True)
+                if i % 10 == 0 or i == len(todo):
+                    print("  last sales %d/%d batches (%d failed)"
+                          % (i, len(todo), failed), flush=True)
+    return {int(k): tuple(v) for k, v in out.items()}
+
+
 def _envelope(bbox):
     s, w, n, e = bbox
     return json.dumps({"xmin": w, "ymin": s, "xmax": e, "ymax": n,
@@ -272,8 +335,14 @@ def main():
     land_values = fetch_land_values([p.get("propid") for p in leads])
     print("land values matched: %d/%d" % (len(land_values), len(leads)))
 
+    last_sales = fetch_last_sales([p.get("propid") for p in leads])
+    print("last sale matched: %d/%d" % (len(last_sales), len(leads)))
+
     have = 0
     for p in leads:
+        ls = last_sales.get(p.get("propid"))
+        if ls:
+            p["last_sale_date"], p["last_sale_price"] = ls[0], ls[1]
         lv = land_values.get(p.get("propid"))
         if not lv:
             continue

@@ -24,8 +24,11 @@ JS = r"""
               ["Redone pre-2005", "c2"], ["Mid tone", "c3"],
               ["Modern dark", "c4"], ["Unconfirmed", "c5"],
               ["Not visible", "c6"]];
-  // The two states worth posting to: never resurfaced, or visibly neglected.
-  var PRIME = [0, 1];
+  // Every state whose interior is at or past end of life: green water, never
+  // resurfaced, or last resurfaced before 2005 (21-28 years, against a 15-25
+  // year finish life). Ordering inside the set still favours never-touched
+  // pools, because STATE_SCORE scores them higher.
+  var PRIME = [0, 1, 2];
   var ERA = { 1978: ["pre-1979", "e78"], 1986: ["1979-86", "e86"],
               1991: ["1987-91", "e91"], 1998: ["1992-98", "e98"],
               2005: ["1999-2005", "e05"] };

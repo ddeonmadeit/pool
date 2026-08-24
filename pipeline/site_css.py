@@ -54,6 +54,10 @@ body::before{
 .brand{font-size:.92rem;font-weight:800;letter-spacing:.16em;text-transform:uppercase;}
 .brand i{font-style:normal;color:var(--signal-glow);text-shadow:0 0 9px rgba(255,120,45,.45);}
 .chassis .spacer{flex:1;}
+.pagetag{font-family:"IBM Plex Mono",monospace;font-size:.6rem;font-weight:600;
+  letter-spacing:.16em;text-transform:uppercase;color:var(--cream-300);
+  padding:5px 11px;border-radius:6px;background:rgba(0,0,0,.22);
+  box-shadow:inset 0 1px 0 rgba(255,248,235,.05);}
 .readout{
   font-family:"IBM Plex Mono",monospace; font-size:.6rem; font-weight:600;
   letter-spacing:.13em; text-transform:uppercase; color:var(--cream-500);
