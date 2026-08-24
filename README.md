@@ -122,13 +122,13 @@ from the `POOL_WORKERS` and `AGE_WORKERS` environment variables.
 Ranking orders the whole list. Qualifying is a separate and stricter question,
 because a letter is spent whether or not the lead behind it was sound, so
 `qualify.py` applies hard gates and records on every lead exactly which ones
-fired. 208 of 8,411 leads clear all of them; 178 also clear the $2M value
+fired. 1,187 of 8,411 leads clear all of them; 1,008 also clear the $2M value
 filter the site opens with. `mail_merge.csv` carries only those, and the site
 opens on the same set.
 
 | Gate | Why |
 |---|---|
-| Address more than 3 m outside its parcel | 1,963 leads were matched to the *nearest* parcel rather than one containing the pool, a median 4.8 m out and 174 of them past 10 m. A metre or two is OSM/cadastre registration slop; ten metres is the neighbour's title. |
+| No official address point near the pool | The authoritative check. Each assigned address is looked up in the NSW principal address points and the distance to the pool measured; 121 leads have no plausible point and are held back. This replaced a parcel-containment rule that got it wrong both ways - see below. |
 | Dating match slid 8 m or more | The age detector searches ±10 m to absorb georeferencing drift. A match that had to travel that far probably found the pool next door, and with it the neighbour's construction date. |
 | Several pools on one address | The fingerprint of a duplex, dual occupancy or estate: the addressee may not be who can commission the work. |
 | Not a private residential pool | A club or council pool is not this offer. |
@@ -136,6 +136,43 @@ opens on the same set.
 | Footprint only partly reads as water | The tone was averaged over a mixed sample, so it is not a finish measurement. |
 | No estimated value | Cannot be judged against the value filter, and is silently invisible to it. |
 | Pale reading not convincing against its own suburb | See below. |
+
+### Is the address on the envelope actually right?
+
+Parcel containment used to answer this alone: `geocode.py` puts a pool inside a
+cadastral parcel where it can and otherwise takes the nearest parcel within
+30 m, and any such fallback more than 3 m out was rejected as probably the
+neighbour's title. That was the best available inference, but it was only ever
+an inference about geometry, never a check that the address exists.
+
+`verify_addresses.py` adds the real check, against the NSW **principal address
+points** - the authoritative record of where an address is. For each lead it
+measures the distance from the pool to the official point for its assigned
+address. Across all 8,411 leads: **8,290 verified (98.6%)**, 118 unverifiable,
+3 suspect. Of the 1,961 leads that came from the nearest-parcel fallback -
+the ones the old rule most distrusted - **1,915 (97.7%) verify**.
+
+Run against the prime set, the two rules disagree in both directions, and the
+parcel rule is wrong in both:
+
+- **409 prime leads it rejected** verify against an official address point a
+  median of 27 m away (max 68 m). That is the distance from a backyard pool to
+  its own house on a normal Sydney block, not a mis-assignment. These were good
+  leads being thrown away.
+- **31 leads it accepted** have no plausible official point at all. Those are
+  the genuinely wrong addresses, and they were heading for the mail run.
+
+So the authoritative check now decides, and parcel containment only rules on
+the leads it cannot see. Net effect on the mail run: 980 → 1,187 mail-ready.
+
+A related fix came out of the same audit. Suburb was being read off the end of
+the address string by looking for a street type, which mis-parsed three ways -
+`BELMORE ROAD NORTH RIVERWOOD` became "North Riverwood", `THE CLOISTERS ST
+IVES` became "Ives" (`ST` read as an abbreviated `STREET`), and streets with no
+street type at all (`THE GREENWAY`) fell back to the last word. Matching the
+tail of the address against the authoritative 746-suburb list instead, longest
+match first, resolves all three without knowing anything about street naming.
+Postcode coverage went from 8,363 to **8,411 of 8,411**.
 
 ### What the tone reading can and cannot carry
 
@@ -185,22 +222,35 @@ What survives that unambiguously is what the mail run actually rests on: the
 proven from the cadastre, and **green water** is direct evidence of deferred
 maintenance. Tone narrows the list; it is not proof about any one pool.
 
-### The largest remaining gap: ages that were never looked for
+### Ages that were never looked for: closed
 
-`refine_ages.py` walks a bounded shortlist back through 1991 / 1986 / 1978, so
-for most leads nobody has looked earlier than 1998. Only 4,052 of 8,411 leads
-have a 1991 observation at all, and **123 of the current mail-ready set have
-never been checked against anything older than 1998**. Their
-`earliest_confirmed_year` is a floor set by the refinement budget, not a
-finding - which is why the gates do not filter on confirmed age. Doing so would
-throw away pools whose real age simply was not measured, mistaking missing data
-for negative evidence.
+`refine_ages.py` walks pools back through 1991 / 1986 / 1978, and that pass was
+for a long time capped by a refinement budget, which left 2,476 leads sitting at
+`earliest_confirmed_year == 1998` on a single observation - a floor set by the
+budget rather than a finding. That gap is now closed: **no lead is left with a
+1998 floor and only one observation**, and all 1,997 leads still dated 1998
+carry an explicit 1991 *absent* observation behind them. Their date is negative
+evidence now, not missing data.
 
-Finishing that pass over the qualified shortlist is the cheapest large
-improvement available: roughly 500 imagery lookups, against the tens of
-thousands a full run costs. It would turn "at least 21 years old" into a real
-date for over half the mail list, on the one signal here that is properly
-audited.
+Walking the shortlist back moved roughly 1,600 leads older, and the era
+distribution shifted accordingly:
+
+| earliest confirmed | before | after |
+|---|---|---|
+| 1986 | 1,270 | **2,099** |
+| 1991 | 1,653 | **2,432** |
+| 1998 | 3,605 | 1,997 |
+| 2005 | 1,883 | 1,883 |
+
+The 1,883 leads at 2005 are deliberately not walked back: each carries
+`[(1998, absent), (2005, present)]`, so the pool demonstrably did not exist in
+1998 and looking earlier can only confirm the same absence. For the same reason
+104 mail-ready leads have no observation older than 1998 - all 104 are 2005-era
+pools, not unmeasured ones.
+
+The gates still do not filter on confirmed age, because 20+ years is already
+guaranteed by the qualifying question itself; the refined date sharpens ranking
+rather than admission.
 
 ### Historical tone is not used as corroboration
 

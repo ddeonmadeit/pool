@@ -178,13 +178,31 @@ def score_pool(p, age_rec, reno_rec=None):
     return p
 
 
-def suburb_of(address):
-    """NSW address strings end with the suburb, e.g. '29 HOPETOUN AVENUE VAUCLUSE'."""
+def suburb_of(address, known=None):
+    """NSW address strings end with the suburb, e.g. '29 HOPETOUN AVENUE VAUCLUSE'.
+
+    Splitting on a street type gets this wrong in both directions. Street names
+    carry their own trailing direction ('BELMORE ROAD NORTH RIVERWOOD' is not
+    North Riverwood), plenty of real streets have no street type at all ('THE
+    CLOISTERS', 'THE GREENWAY'), and 'ST IVES' looks like an abbreviated
+    'STREET' to any suffix rule. So when the authoritative suburb list is
+    available, match the tail of the address against it and take the longest
+    suburb that fits: that resolves 'NORTH SYDNEY' over 'SYDNEY' and 'FRENCHS
+    FOREST' over 'FOREST' without needing to know anything about street naming.
+    The suffix heuristic stays behind it for suburbs the list does not carry.
+    """
     if not address:
         return None
     parts = address.strip().split()
     if len(parts) < 2:
         return None
+    if known:
+        # Longest wins, but never the whole string - a suburb needs a street
+        # in front of it. Four words covers 'WEST PENNANT HILLS' and the rest.
+        for n in range(min(4, len(parts) - 1), 0, -1):
+            cand = " ".join(parts[-n:])
+            if cand in known:
+                return cand
     street_types = {
         "AVENUE", "STREET", "ROAD", "PLACE", "DRIVE", "CLOSE", "COURT",
         "CRESCENT", "PARADE", "LANE", "WAY", "TERRACE", "GROVE", "CIRCUIT",
@@ -255,7 +273,7 @@ def main():
     sub_lookup = load_suburb_lookup()
     for p in pools:
         score_pool(p, ages.get(p["osm_id"]), reno.get(p["osm_id"]))
-        p["suburb"] = suburb_of(p.get("address"))
+        p["suburb"] = suburb_of(p.get("address"), sub_lookup)
         meta = sub_lookup.get((p["suburb"] or "").upper()) or {}
         p["postcode"] = meta.get("postcode")
         p["council"] = meta.get("council")

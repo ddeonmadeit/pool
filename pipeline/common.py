@@ -86,22 +86,33 @@ def polygon_perimeter_m(pts):
 
 
 def centroid(ring):
-    """Area-weighted centroid of a lat/lon ring; falls back to mean."""
+    """Area-weighted centroid of a lat/lon ring; falls back to mean.
+
+    The shoelace centroid is defined about the coordinate origin, which on raw
+    lat/lon is a disaster for anything pool-sized: a 10 m pool at (-34, 151)
+    gives cross products near 5,000 whose differences carry the polygon's own
+    signed area, around 1e-9. That subtraction eats every significant digit
+    double precision has, and the result lands hundreds of metres away - worst
+    for the smallest pools, since the error scales inversely with area.
+    Shifting to the first vertex keeps the arithmetic at the polygon's own
+    scale, then the origin is added back.
+    """
     n = len(ring)
     if n < 3:
         return sum(p[0] for p in ring) / n, sum(p[1] for p in ring) / n
+    oy, ox = ring[0][0], ring[0][1]
     a = cx = cy = 0.0
     for i in range(n):
-        y1, x1 = ring[i]
-        y2, x2 = ring[(i + 1) % n]
+        y1, x1 = ring[i][0] - oy, ring[i][1] - ox
+        y2, x2 = ring[(i + 1) % n][0] - oy, ring[(i + 1) % n][1] - ox
         cross = x1 * y2 - x2 * y1
         a += cross
         cx += (x1 + x2) * cross
         cy += (y1 + y2) * cross
-    if abs(a) < 1e-12:
+    if abs(a) < 1e-16:
         return sum(p[0] for p in ring) / n, sum(p[1] for p in ring) / n
     a *= 0.5
-    return cy / (6 * a), cx / (6 * a)
+    return cy / (6 * a) + oy, cx / (6 * a) + ox
 
 
 def min_area_rect_ratio(pts):

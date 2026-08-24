@@ -12,17 +12,26 @@ measured over the 8,411-lead set rather than assumed.
 
 **Where the address came from.** `geocode.py` puts a pool inside a cadastral
 parcel when it can, and otherwise falls back to the closest parcel within 30 m.
-1,963 leads came from that fallback, a median of 4.8 m out and 174 of them more
-than 10 m out. A metre or two is registration slop between OSM and the
-cadastre and lands on the right house; ten metres clears a Sydney side setback
-several times over and is the neighbour's title. Past 3 m the addressee is a
-guess, and a guessed addressee is a wasted letter at best.
+1,961 leads came from that fallback, a median of 4.8 m out. That offset was
+originally gated at 3 m on the reasoning that anything further was the
+neighbour's title - a fair inference when parcel containment was the only
+address evidence there was.
+
+It is no longer the only evidence. `verify_addresses.py` checks each assigned
+address against the NSW principal address points, which is the authoritative
+answer to "does this address exist where we think it does", and it disagrees
+with the parcel rule in both directions. 409 prime leads the 3 m rule rejected
+verify against an official point a median of 27 m away - the distance from a
+backyard pool to its own house, not a mis-assignment. Meanwhile 31 leads the
+parcel rule waved through have no plausible official point at all, and those
+are the genuinely wrong addresses. So the authoritative check decides, and
+parcel containment only rules on the leads it cannot see.
 
 **Whether the dated pool is this pool.** The age detector slides the footprint
 over a +/-10 m window to absorb georeferencing drift in the historical mosaics
 and keeps the best response. A match that had to travel 8 m or more to find
 water is more likely to have found the pool next door than this one, and with
-it the neighbour's construction date. 203 prime leads sit there.
+it the neighbour's construction date. 439 prime leads sit there.
 
 **Whether one letter reaches one decision-maker.** Several pools collapsing
 onto a single address is the fingerprint of a duplex, dual occupancy or estate:
@@ -156,6 +165,7 @@ BLOCK_ORDER = [
     ("incomplete_address", "Missing suburb or postcode, so the address is not postable"),
     ("partial_water", "Only part of the footprint reads as water today"),
     ("value_unknown", "No estimated property value, so a value filter cannot see it"),
+    ("addr_unverified", "No official address point sits near this pool, so the address is unproven"),
 ]
 REASONS = dict(BLOCK_ORDER)
 BIT = {code: 1 << i for i, (code, _) in enumerate(BLOCK_ORDER)}
@@ -195,7 +205,15 @@ def mail_blocks(p):
     if hit is None or (hit.get("offset_m") or 0) >= AGE_DRIFT_M:
         out.append("age_match_drift")
 
-    if (p.get("address_match") == "nearby"
+    # Parcel containment was the best address evidence available until the
+    # official address points were pulled in; now it is the weaker of the two,
+    # so it only decides the cases the authoritative layer cannot.
+    verify = p.get("address_verify")
+    if verify == "verified":
+        pass
+    elif verify in ("suspect", "unverifiable"):
+        out.append("addr_unverified")
+    elif (p.get("address_match") == "nearby"
             and (p.get("address_offset_m") or 0) > ADDR_SLOP_M):
         out.append("addr_offparcel")
 
