@@ -115,6 +115,31 @@ from the `POOL_WORKERS` and `AGE_WORKERS` environment variables.
 - **18% imagery confidence** - how clean the evidence was, discounted when the
   winning match sat well away from the pool's mapped position.
 
+## Estimated property value
+
+There is no free bulk automated valuation model for NSW property. What is
+published, and used here:
+
+- **Current land value** for almost every property, from the NSW Valuer
+  General, updated 1 July each year - the freehold value of the land alone,
+  excluding the house.
+- **Actual sale prices**, recent for only a slice of any suburb - and often a
+  stale slice at that. A property whose pool has never been renovated is
+  exactly the kind of property unlikely to have changed hands recently either;
+  the very first lead this was tested against last sold in 2003.
+
+So sale price is never used per-property as "the" value - it is too often
+decades old. Instead it calibrates a **land-to-value ratio**: for properties
+with a sale in the last 3 years, `price / current land value` says how much of
+a typical property's worth sits in the land right now. The median of that
+ratio per suburb, applied to every lead's own current land value, gives every
+property an estimate on the same current footing. Suburbs without enough
+recent sales (`valuation.py`'s `MIN_SAMPLES_FOR_SUBURB_RATIO`) fall back to the
+citywide median ratio.
+
+This is a shortlisting filter, not a market appraisal - do not quote the
+number back to a homeowner.
+
 ## Contact details
 
 Residential leads carry an **address only**, deliberately. There is no lawful

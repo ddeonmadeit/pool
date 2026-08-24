@@ -18,7 +18,7 @@ JS = r"""
                 quoted: "Quoted", won: "Won", dead: "Not interested" };
   // Column order in each packed record.
   var A = 0, S = 1, PC = 2, YR = 3, SC = 4, CF = 5, AR = 6, LOT = 7,
-      NP = 8, MQ = 9, LAT = 10, LON = 11, CON = 12, CD = 13;
+      NP = 8, MQ = 9, LAT = 10, LON = 11, CON = 12, CD = 13, EV = 14;
   // Pool condition codes, mirroring CONDITION_CODE in build_site.py.
   var COND = [["Green water", "c0"], ["Original look", "c1"],
               ["Redone pre-2005", "c2"], ["Mid tone", "c3"],
@@ -59,6 +59,11 @@ JS = r"""
     flashT = setTimeout(function () { el.textContent = ""; }, 1800);
   }
 
+  function fmtMoney(n) {
+    if (n >= 1000000) return "$" + (n / 1000000).toFixed(n % 1000000 === 0 ? 0 : 1) + "M";
+    return "$" + Math.round(n / 1000) + "K";
+  }
+
   function esc(s) {
     return String(s == null ? "" : s).replace(/[&<>"]/g, function (c) {
       return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c];
@@ -71,7 +76,7 @@ JS = r"""
       fEra = document.getElementById("f-era"), fSt = document.getElementById("f-st"),
       fCon = document.getElementById("f-con"),
       fAgeMin = document.getElementById("f-age-min"), fAgeMax = document.getElementById("f-age-max"),
-      fCond = document.getElementById("f-cond"),
+      fCond = document.getElementById("f-cond"), fValue = document.getElementById("f-value"),
       fCenter = document.getElementById("f-center"), fRadius = document.getElementById("f-radius"),
       geoBtn = document.getElementById("geo");
 
@@ -126,6 +131,7 @@ JS = r"""
     var term = q.value.trim().toLowerCase();
     var sub = fSub.value, era = fEra.value, st = fSt.value, con = fCon.value;
     var cond = fCond.value;
+    var minValue = fValue.value ? parseInt(fValue.value, 10) : null;
     var ageMin = fAgeMin.value ? parseInt(fAgeMin.value, 10) : null;
     var ageMax = fAgeMax.value ? parseInt(fAgeMax.value, 10) : null;
     var radius = (centerPos && fRadius.value) ? parseFloat(fRadius.value) : null;
@@ -134,6 +140,7 @@ JS = r"""
       var d = DATA[i];
       if (cond === "prime") { if (PRIME.indexOf(d[CD]) === -1) continue; }
       else if (cond !== "" && String(d[CD]) !== cond) continue;
+      if (minValue != null && d[EV] < minValue) continue;
       if (sub && d[S] !== sub) continue;
       if (era && String(d[YR]) !== era) continue;
       if (st && statusOf(i) !== st) continue;
@@ -159,6 +166,8 @@ JS = r"""
       return (da - db) * dir; });
     else if (sortKey === "cond") out.sort(function (a, b) {
       return (DATA[a][CD] - DATA[b][CD]) * dir; });
+    else if (sortKey === "value") out.sort(function (a, b) {
+      return (DATA[a][EV] - DATA[b][EV]) * dir; });
     else if (sortKey === "suburb") out.sort(function (a, b) {
       return DATA[a][S] < DATA[b][S] ? -dir : DATA[a][S] > DATA[b][S] ? dir : 0; });
     view = out;
@@ -191,6 +200,7 @@ JS = r"""
       var meta = esc(d[S]) + (d[PC] ? " · " + d[PC] : "");
       if (d[CON]) meta += " · " + d[CON];
       var cd = COND[d[CD]] || COND[4];
+      var valStr = d[EV] > 0 ? fmtMoney(d[EV]) : "&mdash;";
       var dk = distKm(i);
       var distStr = dk == null ? "—" : (dk < 10 ? dk.toFixed(1) : Math.round(dk)) + " km";
       html += '<tr class="lead" data-i="' + i + '" data-s="' + stt + '">' +
@@ -199,6 +209,7 @@ JS = r"""
         '<td><span class="pill ' + era[1] + '">' + era[0] + '</span>' +
         '<span class="ago">' + age + '+ yr</span></td>' +
         '<td><span class="pill ' + cd[1] + '">' + cd[0] + '</span></td>' +
+        '<td class="num val">' + valStr + '</td>' +
         '<td class="num">' + d[AR] + '</td>' +
         '<td class="num">' + d[LOT] + '</td>' +
         '<td class="num dist">' + distStr + '</td>' +
@@ -263,13 +274,13 @@ JS = r"""
     noteT = setTimeout(function () { persist(); flash("Saved"); }, 450);
   });
 
-  [q, fSub, fEra, fSt, fCon, fCond, fAgeMin, fAgeMax, fRadius].forEach(function (el) {
+  [q, fSub, fEra, fSt, fCon, fCond, fValue, fAgeMin, fAgeMax, fRadius].forEach(function (el) {
     el.addEventListener("input", rebuild);
     el.addEventListener("change", rebuild);
   });
   document.getElementById("reset").addEventListener("click", function () {
     q.value = ""; fSub.value = ""; fEra.value = ""; fSt.value = ""; fCon.value = "";
-    fCond.value = "prime";
+    fCond.value = "prime"; fValue.value = "2000000";
     fAgeMin.value = ""; fAgeMax.value = ""; fRadius.value = ""; fCenter.value = "";
     setCenter(null, "");
     rebuild();
@@ -290,13 +301,13 @@ JS = r"""
   // ── backup ─────────────────────────────────────────────────────
   document.getElementById("export").addEventListener("click", function () {
     var rows = [["address", "suburb", "postcode", "pool_built_by", "min_age_years",
-                 "condition", "score", "status", "note"]];
+                 "condition", "est_value", "score", "status", "note"]];
     for (var i = 0; i < DATA.length; i++) {
       var t = track[i];
       if (!t) continue;
       var d = DATA[i];
       rows.push([d[A], d[S], d[PC] || "", d[YR], NOW - d[YR],
-                 (COND[d[CD]] || COND[4])[0], d[SC],
+                 (COND[d[CD]] || COND[4])[0], d[EV] || "", d[SC],
                  t.s || "new", (t.n || "").replace(/"/g, "'")]);
     }
     if (rows.length === 1) { flash("Nothing tracked yet"); return; }

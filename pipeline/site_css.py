@@ -187,6 +187,7 @@ tbody tr.lead:hover td{background:rgba(255,248,235,.028);}
 .score{font-family:"IBM Plex Mono",monospace;font-weight:600;font-size:.82rem;
   color:#ffbe85;text-align:right;font-variant-numeric:tabular-nums;
   text-shadow:0 0 10px rgba(232,118,52,.35);}
+.val{font-weight:600;color:var(--cream-100);}
 .pill{display:inline-block;font-family:"IBM Plex Mono",monospace;font-size:.55rem;
   font-weight:600;letter-spacing:.1em;padding:3px 7px;border-radius:3px;
   text-transform:uppercase;white-space:nowrap;}

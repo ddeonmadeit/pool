@@ -89,6 +89,7 @@ def pack(leads):
             round(p.get("lon"), 5),
             contact_str(p),
             CONDITION_CODE.get(p.get("reno_state"), 5),
+            p.get("estimated_value") or 0,
         ])
     return out
 
@@ -198,9 +199,9 @@ def build(leads, with_downloads=False):
 imagery from 2005 or earlier, each one re-checked against current imagery to see
 whether it has since been redone. <strong>__PRIME__</strong> still read as an original
 pale interior or are sitting green &mdash; those are the prospects, and the list opens
-filtered to them. The rest are shown for completeness: about half read as a modern dark
-finish. Heaviest in __COUNCILS__. Click a status key as you work the list; it saves in
-this browser.</p>
+filtered to them and to an estimated property value of $2,000,000 or more. The rest are
+shown for completeness: about half read as a modern dark finish. Heaviest in
+__COUNCILS__. Click a status key as you work the list; it saves in this browser.</p>
 
 <div class="stats">
   <div class="stat n"><div class="v" id="k-new">0</div><div class="k">Not contacted</div></div>
@@ -221,6 +222,9 @@ this browser.</p>
     <option value="prime">Prime &mdash; original or green</option>
     <option value="">Any condition</option>__CONDOPTS__
   </select>
+  <span class="ctl-label">Min value</span>
+  <input type="number" id="f-value" min="0" step="100000" value="2000000"
+         style="width:104px" aria-label="Minimum estimated property value in dollars">
   <span class="ctl-label">Suburb</span>
   <select id="f-sub" aria-label="Suburb"><option value="">All</option>__SUBOPTS__</select>
   <span class="ctl-label">Built</span>
@@ -263,15 +267,16 @@ this browser.</p>
   <div class="scroller" id="scroller">
     <table>
       <colgroup>
-        <col style="width:24%"><col style="width:11%"><col style="width:11%">
-        <col style="width:5%"><col style="width:6%"><col style="width:6%">
-        <col style="width:5%"><col style="width:5%"><col style="width:11%">
-        <col style="width:12%"><col style="width:4%">
+        <col style="width:21%"><col style="width:10%"><col style="width:10%">
+        <col style="width:8%"><col style="width:5%"><col style="width:5%">
+        <col style="width:5%"><col style="width:5%"><col style="width:10%">
+        <col style="width:11%"><col style="width:4%">
       </colgroup>
       <thead><tr>
         <th class="sortable" data-sort="suburb">Address<span class="ind"></span></th>
         <th class="sortable" data-sort="age">Pool built<span class="ind"></span></th>
         <th class="sortable" data-sort="cond">Condition<span class="ind"></span></th>
+        <th class="sortable num" data-sort="value">Est. value<span class="ind"></span></th>
         <th class="sortable num" data-sort="area">Pool m&sup2;<span class="ind"></span></th>
         <th class="sortable num" data-sort="lot">Block m&sup2;<span class="ind"></span></th>
         <th class="sortable num" data-sort="distance">Dist<span class="ind"></span></th>
@@ -309,6 +314,11 @@ this browser.</p>
   than the Built buckets. <b>Near / Within</b> centres a radius search on a suburb or your
   current location and filters (and can sort) by distance; the Dist column reads
   &mdash; until a centre is set.<br>
+  <b>Est. value</b> is not a market appraisal - it comes from the NSW Valuer General's
+  current land value for the property (excludes the house), scaled up by the median
+  ratio of recent sale price to land value for that suburb. Suburbs with too few recent
+  sales fall back to a citywide median. Treat it as a filter for shortlisting, not a
+  number to quote back to an owner.<br>
   __DOWNLOADS__<b>Tracking</b> saves in this browser only. Use <b>Back up</b> now and then, and
   <b>Restore</b> to move it to another machine.<br>
   Data: OpenStreetMap contributors (ODbL) &middot; NSW Spatial Services, Department of
