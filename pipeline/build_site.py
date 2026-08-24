@@ -121,7 +121,7 @@ def write_csvs(leads, outdir):
     cols = ["address", "suburb", "postcode", "council", "earliest_confirmed_year",
             "min_age_years", "lead_score", "age_confidence", "address_match",
             "area_m2", "lot_m2", "length_m", "width_m", "rect_fill", "category",
-            "pools_at_address", "reno_state", "ti_now",
+            "pools_at_address", "reno_state", "ti_now", "tone_z",
             "mail_ready", "mail_block_note", "contact_name",
             "contact_phone", "contact_email",
             "contact_website", "lat", "lon", "osm_id"]
@@ -296,12 +296,15 @@ def build(leads, with_downloads=False):
   dating match had to slide 8&nbsp;m or more to find water and may have found the
   neighbour's pool, when several pools share the one address so it is not a single
   household, when only part of the footprint reads as water today, when the suburb,
-  postcode or estimated value is missing, or when the pale reading sits too close to the
-  mid-tone boundary. That last one costs the most leads and is the point of the view:
-  the tone index is one smooth distribution with no natural break, so a reading of 0.81
-  is not a pale pool, it is a pool that landed just on the pale side of a drawn line.
-  Mailing wants readings well clear of it. Switch <b>Condition</b> to
-  <b>Prime</b> to see every original-looking or green pool including those held back.<br>
+  postcode or estimated value is missing, or when the pale reading is not convincing
+  enough. That last one costs the most leads. The tone index is one smooth distribution
+  with no natural break, so a reading of 0.81 is not a pale pool, it is a pool that
+  landed just on the pale side of a drawn line &mdash; and an absolute line does not
+  measure the same thing everywhere, because tone reads systematically paler in the
+  treeless inner east and west than in the canopied north. So a lead has to clear an
+  absolute floor <em>and</em> read as an outlier against its own suburb's median and
+  spread. Switch <b>Condition</b> to <b>Prime</b> to see every original-looking or green
+  pool including those held back.<br>
   <b>How the age is proven</b> &mdash; every pool footprint is sampled against NSW Spatial
   Services historical aerial imagery. A lead appears here only if open water showed at its
   mapped position in 1998 or 2005 imagery, so the pool pre-dates 2006.<br>
@@ -323,8 +326,9 @@ def build(leads, with_downloads=False):
   about any one pool. Two things measured across the set bound it. Tone carries a strong
   per-suburb component (suburb medians run 0.42 to 0.78, the pale end the treeless inner
   east and west, the dark end the canopied north), which looks like capture conditions and
-  shade rather than pool finishes; the mail-ready bar is set high enough to sit clear of
-  even the palest suburb baseline. And holding suburb constant, pools confirmed present in
+  shade rather than pool finishes &mdash; measured inside a suburb the effect vanishes,
+  which is how you know it is the frame and not the pools; the mail-ready bar is therefore
+  drawn against each suburb's own baseline. And holding suburb constant, pools confirmed present in
   1978&ndash;91 read no paler today than pools that only appear by 2005 &mdash; so tone
   does not measurably track pool age. What is solid underneath it is the age, proven from
   imagery and audited against the source, the address, proven from the cadastre, and green

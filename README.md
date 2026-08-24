@@ -122,7 +122,7 @@ from the `POOL_WORKERS` and `AGE_WORKERS` environment variables.
 Ranking orders the whole list. Qualifying is a separate and stricter question,
 because a letter is spent whether or not the lead behind it was sound, so
 `qualify.py` applies hard gates and records on every lead exactly which ones
-fired. 306 of 8,411 leads clear all of them; 274 also clear the $2M value
+fired. 208 of 8,411 leads clear all of them; 178 also clear the $2M value
 filter the site opens with. `mail_merge.csv` carries only those, and the site
 opens on the same set.
 
@@ -135,7 +135,7 @@ opens on the same set.
 | Missing suburb or postcode | Not postable as it stands. |
 | Footprint only partly reads as water | The tone was averaged over a mixed sample, so it is not a finish measurement. |
 | No estimated value | Cannot be judged against the value filter, and is silently invisible to it. |
-| Pale reading within 0.10 of the mid-tone boundary | See below. |
+| Pale reading not convincing against its own suburb | See below. |
 
 ### What the tone reading can and cannot carry
 
@@ -152,15 +152,25 @@ on it is not, which is why the mail run wants readings well out on the tail.
 
 Two further measurements bound how much the reading is worth:
 
-- **Tone has a strong per-suburb component.** Suburb medians run 0.42
-  (Thornleigh) to 0.78 (Ashfield), sd 0.078 across the 59 suburbs with 30+
-  leads, against a within-suburb sd of 0.19. The pale end is the treeless inner
-  east and west, the dark end the canopied north - capture conditions and
-  shade, not pool finishes. The strict bar mostly closes this by itself: at
-  0.90, additionally requiring 0.20 over a lead's own suburb median drops 6 of
-  306, where at the 0.80 boundary it would drop 72 of 679. The correction is
-  therefore measured and deliberately not applied - but it stops being optional
-  if `MAIL_TONE_MIN` is ever lowered.
+- **Tone has a strong per-suburb component**, and the bar is drawn against it
+  rather than in absolute terms. Suburb medians run 0.42 (Thornleigh) to 0.78
+  (Ashfield), sd 0.078 across the 59 suburbs with 30+ leads, against a
+  within-suburb sd of 0.19. The pale end is the treeless inner east and west,
+  the dark end the canopied north - capture conditions and shade, not pool
+  finishes. Checked inside each suburb the effect disappears, which is how you
+  know it is the frame and not the pools: each suburb's dearer half reads
+  +0.005 paler than its cheaper half, a coin flip across 42 suburbs, while
+  between suburbs the same measure spans 0.36. An absolute bar therefore hands
+  whole suburbs a head start, and compounds with the value filter, which
+  selects those same eastern suburbs for unrelated reasons - drawn at an
+  absolute 0.90 the mail list came out 43% inner-east and inner-west against
+  21% of the leads overall. A lead now has to clear an absolute floor
+  (`TONE_FLOOR`, no mid-tone pools anywhere) **and** read as an outlier against
+  its own suburb's median and spread (`TONE_Z_MIN`). That finds the palest
+  pools in Cherrybrook and Wahroonga, where an absolute bar found none, and
+  stops taking half of Strathfield. The result is 12% inner-east and
+  inner-west, and 92 suburbs represented rather than a handful. The gate is not
+  knife-edged on `MIN_SUBURB_SAMPLES`: 12 through 60 yields 191 to 237 leads.
 - **Tone does not measurably track pool age.** Holding suburb constant, pools
   confirmed present in 1978-1991 read no paler today than pools that only
   appear by 2005 (median difference 0.001, mean -0.009, 6 of 12 suburbs going
@@ -174,6 +184,23 @@ What survives that unambiguously is what the mail run actually rests on: the
 **age** is proven from imagery and independently audited, the **address** is
 proven from the cadastre, and **green water** is direct evidence of deferred
 maintenance. Tone narrows the list; it is not proof about any one pool.
+
+### The largest remaining gap: ages that were never looked for
+
+`refine_ages.py` walks a bounded shortlist back through 1991 / 1986 / 1978, so
+for most leads nobody has looked earlier than 1998. Only 4,052 of 8,411 leads
+have a 1991 observation at all, and **123 of the current mail-ready set have
+never been checked against anything older than 1998**. Their
+`earliest_confirmed_year` is a floor set by the refinement budget, not a
+finding - which is why the gates do not filter on confirmed age. Doing so would
+throw away pools whose real age simply was not measured, mistaking missing data
+for negative evidence.
+
+Finishing that pass over the qualified shortlist is the cheapest large
+improvement available: roughly 500 imagery lookups, against the tens of
+thousands a full run costs. It would turn "at least 21 years old" into a real
+date for over half the mail list, on the one signal here that is properly
+audited.
 
 ### Historical tone is not used as corroboration
 

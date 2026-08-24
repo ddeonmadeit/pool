@@ -28,16 +28,39 @@ it the neighbour's construction date. 203 prime leads sit there.
 onto a single address is the fingerprint of a duplex, dual occupancy or estate:
 the addressee may not be the person who can commission the work.
 
-**Whether the tone reading is clear of the boundary.** This is the gate that
-costs the most leads, and it is worth being blunt about why. `ti_now` across
-the full set is a single smooth distribution peaking around 0.44 with a long
-pale tail - there is no trough at 0.80, or anywhere else. The 0.80 line
+**Whether the pool reads pale against its own neighbourhood.** This is the gate
+that costs the most leads, and it is worth being blunt about why. `ti_now`
+across the full set is a single smooth distribution peaking around 0.44 with a
+long pale tail - there is no trough at 0.80, or anywhere else. The 0.80 line
 separating "original finish" from "mid tone" is a visually calibrated slice
 through a continuum, not a boundary between two separated populations. So a
 reading of 0.81 is not a pale pool; it is a pool that landed just on the pale
-side of an arbitrary line. Ranking the list that way is fine. Mailing on it is
-not. The mail run therefore wants readings well into the tail, where being on
-the wrong side of the line takes a much larger error.
+side of an arbitrary line.
+
+Worse, an absolute line is not measuring the same thing everywhere. Tone has a
+large per-suburb component: suburb medians run 0.42 in Thornleigh to 0.78 in
+Ashfield, sd 0.078 across the 59 suburbs with 30+ leads, against a
+within-suburb sd of 0.19. The pale end is the treeless inner east and inner
+west, the dark end the canopied northern suburbs - which is what capture
+conditions and shade look like, not what pool finishes look like. Checked
+inside each suburb the effect disappears, which is how you know it is the
+frame and not the pools: comparing each suburb's dearer half against its
+cheaper half moves the median tone by +0.005, a coin flip across 42 suburbs,
+while between suburbs the same measure spans 0.36.
+
+An absolute bar therefore hands whole suburbs a head start, and it compounds
+with the value filter, which selects those same eastern suburbs for unrelated
+reasons. Drawn at an absolute 0.90 the mail list came out 43% inner-east and
+inner-west against 21% of the leads overall - a geography set by tree cover and
+flight dates rather than by where Sydney's unrenovated pools are.
+
+So the bar is drawn twice. A lead must clear an absolute floor - no mid-tone
+pools, whatever their surroundings - and must also stand out as an outlier
+against the median and spread of its own suburb, which is the same
+"compare against the local background" principle the tone measurement already
+uses within a single frame, applied one level up. That reads the palest pools
+in Cherrybrook and Wahroonga, where an absolute bar found nothing at all, and
+stops reading half of Strathfield.
 
 Green water is exempt from that bar. It is the one categorical signal in the
 set: nobody maintaining a pool lets it go green, so algal water is direct
@@ -101,10 +124,17 @@ AGE_DRIFT_M = 8.0
 # Below this fraction of the footprint reading as water today, the tone was
 # averaged over a partly non-water sample and is not a finish measurement.
 WATER_FRAC_MIN = 0.85
-# How far past the classification boundary (renovation.ORIGINAL_MIN, 0.80) a
-# current-imagery tone reading must sit to be mailed on. See the module
-# docstring: the index is a continuum, so nearness to the line is the risk.
-MAIL_TONE_MIN = 0.90
+# The tone bar, drawn twice. TONE_FLOOR is absolute and keeps mid-tone pools
+# out wherever they sit; TONE_Z_MIN is how many suburb standard deviations
+# above the suburb median the reading must sit, which is what stops tree cover
+# and flight dates deciding the geography of the mail run.
+TONE_FLOOR = 0.80
+TONE_Z_MIN = 2.0
+# A suburb needs this many measured pools before its own median and spread are
+# trusted as the local baseline; below it, the citywide figures stand in. Same
+# reasoning as valuation.py's MIN_SAMPLES_FOR_SUBURB_RATIO. The gate is not
+# sensitive to the exact number - 12 through 60 yields 191 to 237 leads.
+MIN_SUBURB_SAMPLES = 25
 
 # The states worth a letter at all: an untouched-looking interior, or green
 # water. Everything else either has already been redone or cannot be called.
@@ -152,7 +182,9 @@ def mail_blocks(p):
     state = p.get("reno_state")
     if state not in PRIME_STATES:
         out.append("not_prime")
-    elif state == "original_finish" and (p.get("ti_now") or 0) < MAIL_TONE_MIN:
+    elif state == "original_finish" and (
+            (p.get("ti_now") or 0) < TONE_FLOOR
+            or (p.get("tone_z") is None or p["tone_z"] < TONE_Z_MIN)):
         # Green water skips this: it is evidence, not a colour-balance call.
         out.append("tone_marginal")
 
@@ -182,9 +214,49 @@ def mail_blocks(p):
     return out
 
 
+def suburb_baselines(leads):
+    """Per-suburb median and spread of the current tone reading.
+
+    This is the local background the tone gate is measured against. Suburbs
+    with too few measured pools to have a trustworthy baseline of their own
+    fall back to the citywide figures rather than to a noisy handful.
+    """
+    import statistics as st
+    from collections import defaultdict
+    ti = [p["ti_now"] for p in leads if p.get("ti_now") is not None]
+    if not ti:
+        return {}, {}, 0.0, 0.0
+    city_med, city_sd = st.median(ti), st.pstdev(ti)
+    by_sub = defaultdict(list)
+    for p in leads:
+        if p.get("ti_now") is not None:
+            by_sub[p.get("suburb")].append(p["ti_now"])
+    med, sd = {}, {}
+    for sub, vals in by_sub.items():
+        if len(vals) >= MIN_SUBURB_SAMPLES:
+            med[sub], sd[sub] = st.median(vals), st.pstdev(vals)
+        else:
+            med[sub], sd[sub] = city_med, city_sd
+    return med, sd, city_med, city_sd
+
+
+def tone_z(p, med, sd, city_med, city_sd):
+    """How far above its suburb's own baseline this pool's tone reads."""
+    if p.get("ti_now") is None:
+        return None
+    sub = p.get("suburb")
+    spread = sd.get(sub) or city_sd
+    if spread < 0.02:            # a degenerate suburb spread would divide out
+        spread = city_sd or 1.0
+    return round((p["ti_now"] - med.get(sub, city_med)) / spread, 2)
+
+
 def apply(leads):
     """Stamp every lead with its blocks and a mail_ready flag. Returns counts."""
     from collections import Counter
+    med, sd, city_med, city_sd = suburb_baselines(leads)
+    for p in leads:
+        p["tone_z"] = tone_z(p, med, sd, city_med, city_sd)
     fired = Counter()
     ready = 0
     for p in leads:
@@ -211,12 +283,21 @@ def report(leads, stats, min_value=2_000_000):
     print("gates fired (a lead can trip several):")
     for k, v in stats["fired"].most_common():
         print("   %-19s %5d  %s" % (k, v, REASONS[k]))
-    # What the tone bar alone is costing, at bars either side of the chosen one.
+    # What the tone bar alone is costing, either side of the chosen one.
+    clean = [p for p in prime
+             if not [b for b in mail_blocks(p) if b != "tone_marginal"]]
+    print("prime leads clean on every non-tone gate: %d" % len(clean))
     print("mail-ready at other tone bars (all other gates held):")
-    for bar in (0.80, 0.85, 0.88, 0.90, 0.95, 1.00):
-        n = sum(1 for p in prime
-                if not [b for b in mail_blocks(p) if b != "tone_marginal"]
-                and (p.get("reno_state") == "neglected"
-                     or (p.get("ti_now") or 0) >= bar))
-        print("   ti_now >= %.2f -> %4d%s" % (bar, n,
-              "   <- current MAIL_TONE_MIN" if abs(bar - MAIL_TONE_MIN) < 1e-9 else ""))
+    for z in (1.0, 1.5, 2.0, 2.5, 3.0):
+        n = sum(1 for p in clean
+                if p.get("reno_state") == "neglected"
+                or ((p.get("ti_now") or 0) >= TONE_FLOOR
+                    and (p.get("tone_z") or -9) >= z))
+        print("   floor %.2f + z >= %.1f -> %4d%s"
+              % (TONE_FLOOR, z, n,
+                 "   <- current TONE_Z_MIN" if abs(z - TONE_Z_MIN) < 1e-9 else ""))
+    print("   for reference, an absolute bar with no suburb baseline:")
+    for bar in (0.85, 0.90, 0.95):
+        n = sum(1 for p in clean if p.get("reno_state") == "neglected"
+                or (p.get("ti_now") or 0) >= bar)
+        print("      ti_now >= %.2f -> %4d" % (bar, n))
