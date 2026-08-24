@@ -90,12 +90,19 @@ def fetch_land_values(propids, workers=8):
 
     if todo:
         print("fetching land values: %d batches" % len(todo), flush=True)
+        failed = 0
         with ThreadPoolExecutor(max_workers=workers) as ex:
             futs = [ex.submit(work, it) for it in todo]
             for i, fut in enumerate(as_completed(futs), 1):
-                out.update(fut.result())
-                if i % 10 == 0:
-                    print("  land values %d/%d batches" % (i, len(todo)), flush=True)
+                try:
+                    out.update(fut.result())
+                except Exception as e:  # noqa: BLE001 - one bad batch must not sink the run
+                    failed += 1
+                    print("  batch failed (%s), will retry on next run: %s"
+                          % (type(e).__name__, e), flush=True)
+                if i % 10 == 0 or i == len(todo):
+                    print("  land values %d/%d batches (%d failed)"
+                          % (i, len(todo), failed), flush=True)
     return {int(k): tuple(v) for k, v in out.items()}
 
 
