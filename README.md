@@ -64,15 +64,17 @@ pipeline/
   refine_ages.py      walks the shortlist back to pin down the decade
   suburbs.py          suburb -> postcode and council
   score.py            lead ranking
+  qualify.py          which leads are clean enough to post to, and why not
+  requalify.py        re-run that gate over the shipped data/leads.json
   enrich_contacts.py  business contacts for commercial/strata pools only
   build_site.py       the site: one self-contained page carrying every lead
   site_css.py         stylesheet (RawLeads-style dark console)
   site_js.py          client logic: virtualised table, filters, tracking
   run_all.sh          end-to-end
 data/
-  leads.json          scored, ranked leads
-  leads_full.csv      every field, every lead
-  mail_merge.csv      address-only extract for a mail house
+  leads.json          scored, ranked, qualified leads
+  leads_full.csv      every field, every lead, with the hold reason on each
+  mail_merge.csv      the mail-ready leads only, for a mail house
 site/
   index.html          build published as an Artifact
 docs/
@@ -114,6 +116,82 @@ from the `POOL_WORKERS` and `AGE_WORKERS` environment variables.
 - **14% block size** - a bigger parcel means more surround, coping and paving.
 - **18% imagery confidence** - how clean the evidence was, discounted when the
   winning match sat well away from the pool's mapped position.
+
+## Qualifying a lead for the mail run
+
+Ranking orders the whole list. Qualifying is a separate and stricter question,
+because a letter is spent whether or not the lead behind it was sound, so
+`qualify.py` applies hard gates and records on every lead exactly which ones
+fired. 306 of 8,411 leads clear all of them; 274 also clear the $2M value
+filter the site opens with. `mail_merge.csv` carries only those, and the site
+opens on the same set.
+
+| Gate | Why |
+|---|---|
+| Address more than 3 m outside its parcel | 1,963 leads were matched to the *nearest* parcel rather than one containing the pool, a median 4.8 m out and 174 of them past 10 m. A metre or two is OSM/cadastre registration slop; ten metres is the neighbour's title. |
+| Dating match slid 8 m or more | The age detector searches ±10 m to absorb georeferencing drift. A match that had to travel that far probably found the pool next door, and with it the neighbour's construction date. |
+| Several pools on one address | The fingerprint of a duplex, dual occupancy or estate: the addressee may not be who can commission the work. |
+| Not a private residential pool | A club or council pool is not this offer. |
+| Missing suburb or postcode | Not postable as it stands. |
+| Footprint only partly reads as water | The tone was averaged over a mixed sample, so it is not a finish measurement. |
+| No estimated value | Cannot be judged against the value filter, and is silently invisible to it. |
+| Pale reading within 0.10 of the mid-tone boundary | See below. |
+
+### What the tone reading can and cannot carry
+
+The last gate costs by far the most leads, and the reason is worth stating
+plainly rather than burying in a threshold.
+
+`ti_now` across the whole set is **one smooth distribution**, peaking around
+0.44 with a long pale tail. There is no trough at 0.80, or anywhere else. So
+the 0.80 line dividing "original finish" from "mid tone" is a visually
+calibrated slice through a continuum, not a boundary between two separated
+populations, and a reading of 0.81 is not a pale pool - it is a pool that
+landed just on the pale side of a drawn line. Ranking on that is fine. Posting
+on it is not, which is why the mail run wants readings well out on the tail.
+
+Two further measurements bound how much the reading is worth:
+
+- **Tone has a strong per-suburb component.** Suburb medians run 0.42
+  (Thornleigh) to 0.78 (Ashfield), sd 0.078 across the 59 suburbs with 30+
+  leads, against a within-suburb sd of 0.19. The pale end is the treeless inner
+  east and west, the dark end the canopied north - capture conditions and
+  shade, not pool finishes. The strict bar mostly closes this by itself: at
+  0.90, additionally requiring 0.20 over a lead's own suburb median drops 6 of
+  306, where at the 0.80 boundary it would drop 72 of 679. The correction is
+  therefore measured and deliberately not applied - but it stops being optional
+  if `MAIL_TONE_MIN` is ever lowered.
+- **Tone does not measurably track pool age.** Holding suburb constant, pools
+  confirmed present in 1978-1991 read no paler today than pools that only
+  appear by 2005 (median difference 0.001, mean -0.009, 6 of 12 suburbs going
+  the other way). If a large share of 40-year-old pools were still on their
+  original interior, they should read paler as a group. They do not. That is
+  equally consistent with old pools being resurfaced often enough to cancel the
+  effect and with the index carrying less finish information than the method
+  assumes, and nothing collected here separates the two.
+
+What survives that unambiguously is what the mail run actually rests on: the
+**age** is proven from imagery and independently audited, the **address** is
+proven from the cadastre, and **green water** is direct evidence of deferred
+maintenance. Tone narrows the list; it is not proof about any one pool.
+
+### Historical tone is not used as corroboration
+
+The obvious fix - require the pool to read pale in the old captures too - does
+not work, because the old captures do not agree with each other. On the 5,540
+pools readable in both, the 1998 and 2005 captures land in the same tone band
+only **35%** of the time, and they disagree in a fixed direction: 1,173 pools
+read pale in 1998 and navy in 2005, against 185 the other way. That is
+per-capture colour balance on half-metre scans, not 1,173 pools resurfaced dark
+in seven years. Conditioning on the current reading says the same: a pool navy
+today read navy in 2005 54% of the time, and a pool pale today read navy in
+2005 36% of the time.
+
+So `renovated_recent` and `renovated_pre2005` split a currently-dark pool on
+weak evidence. Both are already outside the prime set, and no gate holds it
+against a lead that reads pale in only one capture. The surround-paving signal
+was rejected on the same grounds: its spread is near identical whether a pool
+reads original or already redone.
 
 ## Estimated property value
 
@@ -168,13 +246,16 @@ on any pool polygon source - the only replaceable part is `fetch_pools.py`.
 
 ## The site
 
-`docs/index.html` is one self-contained page holding **every** qualified lead.
-Nothing is truncated: the whole set ships inline as a packed array-of-arrays and
-the table is virtualised, so only the ~30 rows actually on screen exist in the
-DOM at any moment. Measured with the font host unreachable, 10,419 leads reach
-usable in **0.24 s**, and filtering the full set takes about a third of a second.
-Packing the data rather than pre-rendering table markup also made the page
-*smaller* than the earlier 2,500-row version - 1.0 MB against 2.1 MB.
+`docs/index.html` is one self-contained page holding **every** qualified lead,
+not just the mail-ready ones - it opens filtered to those, and the Condition
+control widens it back out. Nothing is truncated: the whole set ships inline as
+a packed array-of-arrays and the table is virtualised, so only the ~30 rows
+actually on screen exist in the DOM at any moment. Measured in headless
+Chromium with the font host blocked, all 8,411 leads reach interactive in
+**0.33 s**, and re-filtering the full set takes **10 ms**. Each lead's hold
+reasons ship as a bitmask over `qualify.BLOCK_ORDER` rather than as text -
+8,411 copies of the same English sentences cost 670 KB on their own, which is
+most of the page again.
 
 Outreach state is kept in `localStorage`, keyed by pool id. **Back up** copies it
 to the clipboard as JSON and **Restore** reads it back, which is how you move

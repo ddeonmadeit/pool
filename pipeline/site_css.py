@@ -54,27 +54,6 @@ body::before{
 .brand{font-size:.92rem;font-weight:800;letter-spacing:.16em;text-transform:uppercase;}
 .brand i{font-style:normal;color:var(--signal-glow);text-shadow:0 0 9px rgba(255,120,45,.45);}
 .chassis .spacer{flex:1;}
-.readout{
-  font-family:"IBM Plex Mono",monospace; font-size:.6rem; font-weight:600;
-  letter-spacing:.13em; text-transform:uppercase; color:var(--cream-500);
-  text-align:right; line-height:1.7;
-}
-.readout b{color:var(--signal-glow);font-weight:600;text-shadow:0 0 7px rgba(255,120,45,.5);}
-
-/* ── Hero ──────────────────────────────────────────────────────── */
-.eyebrow{
-  display:flex;align-items:center;gap:9px;font-size:.6rem;font-weight:700;
-  letter-spacing:.22em;text-transform:uppercase;color:var(--signal-glow);margin-bottom:13px;
-}
-.eyebrow .dash{width:22px;height:2px;background:var(--signal);border-radius:1px;}
-h1{
-  font-size:clamp(26px,3.6vw,44px); font-weight:800; line-height:1.06;
-  letter-spacing:-.018em; color:var(--cream-100); margin:0 0 10px;
-  text-shadow:0 2px 0 var(--edge-dark),0 1px 0 var(--edge-light); text-wrap:balance;
-}
-h1 em{font-style:normal;color:var(--signal-glow);
-  text-shadow:0 0 26px rgba(224,121,63,.5),0 0 8px rgba(255,150,80,.3);}
-.lede{color:var(--cream-300);font-size:.92rem;max-width:74ch;margin:0 0 24px;}
 
 /* ── Stat row ──────────────────────────────────────────────────── */
 .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:2px;
@@ -210,6 +189,9 @@ tbody tr.lead:hover td{background:rgba(255,248,235,.028);}
 .tag{font-family:"IBM Plex Mono",monospace;font-size:.52rem;font-weight:600;
   color:var(--signal-glow);background:rgba(197,96,44,.12);
   border:1px solid rgba(197,96,44,.2);border-radius:3px;padding:1px 4px;margin-left:6px;}
+.tag.ok{color:#7fc9a0;background:rgba(90,190,140,.11);border-color:rgba(90,190,140,.22);}
+.tag.hold{color:#b9a58e;background:rgba(150,130,105,.11);border-color:rgba(150,130,105,.22);
+  cursor:help;}
 .approx{color:var(--cream-500);margin-left:5px;cursor:help;}
 
 /* status key */
@@ -256,7 +238,6 @@ footer a{color:var(--signal-glow);text-decoration:none;}
 @media (max-width:760px){
   :root{--pad:10px;}
   .shell{padding-bottom:60px;}
-  .readout{text-align:left;}
   .scroller{height:70vh;}
   .ctl-group{width:100%;}
   select{max-width:150px;}
