@@ -105,38 +105,56 @@ def _envelope(bbox):
                        "spatialReference": {"wkid": 4326}})
 
 
-def fetch_recent_sales(bbox=SYDNEY_BBOX, years=3):
-    """House sales (not units) across the metro area, for ratio calibration."""
-    os.makedirs(CACHE, exist_ok=True)
-    path = os.path.join(CACHE, "recent_sales.json")
+# A single Sydney-wide envelope query timed out repeatedly - the server has to
+# evaluate the where clause across the whole dataset before it can even start
+# paging. Splitting into a grid of small envelopes, queried in parallel with
+# per-cell caching, is the same pattern fetch_pools.py and geocode.py already
+# use for exactly this reason: many cheap requests beat one expensive one, and
+# a cell that fails can be retried without losing everything else.
+SALES_GRID_STEP = 0.05
+
+
+def _grid_cells(bbox, step):
+    s, w, n, e = bbox
+    out = []
+    lat = s
+    while lat < n:
+        lon = w
+        while lon < e:
+            out.append((lat, lon, min(lat + step, n), min(lon + step, e)))
+            lon += step
+        lat += step
+    return out
+
+
+def _fetch_sales_cell(cell, cutoff_year):
+    s, w, n, e = cell
+    key = "sales_%.3f_%.3f_%.3f_%.3f.json" % cell
+    path = os.path.join(CACHE, key)
     if os.path.exists(path):
         with open(path) as f:
             return json.load(f)
 
-    cutoff_year = time.gmtime().tm_year - years
     feats = []
     offset = 0
-    print("fetching recent sales for suburb value ratios...", flush=True)
     while True:
         # This service 400s on any explicit outFields list combined with a
         # geometry filter - only "*" works. Harmless; we only need four fields.
         d = http_get_json(SALES_LAYER + "/query", {
-            "f": "json", "geometry": _envelope(bbox),
+            "f": "json", "geometry": _envelope((s, w, n, e)),
             "geometryType": "esriGeometryEnvelope", "inSR": 4326,
             "spatialRel": "esriSpatialRelIntersects",
             "where": "strata=0 AND last_sale=\'Y\'",
             "outFields": "*", "returnGeometry": "false",
             "resultRecordCount": "1000", "resultOffset": str(offset),
-        }, timeout=35, retries=3)
+        }, timeout=40, retries=3)
         batch = d.get("features", [])
         feats.extend(batch)
-        print("  ...%d sale records so far" % len(feats), flush=True)
         if not d.get("exceededTransferLimit") or not batch:
             break
         offset += len(batch)
-        if offset > 90000:
+        if offset > 20000:
             break
-    print("  %d sale records" % len(feats), flush=True)
 
     out = []
     for f in feats:
@@ -154,6 +172,39 @@ def fetch_recent_sales(bbox=SYDNEY_BBOX, years=3):
                     "price": a["price"], "year": year})
     with open(path, "w") as f:
         json.dump(out, f)
+    return out
+
+
+def fetch_recent_sales(bbox=SYDNEY_BBOX, years=3, workers=10):
+    """House sales (not units) across the metro area, for ratio calibration."""
+    os.makedirs(CACHE, exist_ok=True)
+    combined_path = os.path.join(CACHE, "recent_sales.json")
+    if os.path.exists(combined_path):
+        with open(combined_path) as f:
+            return json.load(f)
+
+    cutoff_year = time.gmtime().tm_year - years
+    cells = _grid_cells(bbox, SALES_GRID_STEP)
+    print("fetching recent sales for suburb value ratios: %d grid cells"
+          % len(cells), flush=True)
+
+    out = []
+    done = [0]
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        futs = {ex.submit(_fetch_sales_cell, c, cutoff_year): c for c in cells}
+        for fut in as_completed(futs):
+            done[0] += 1
+            try:
+                out.extend(fut.result())
+            except Exception as e:  # noqa: BLE001 - one bad cell must not sink the run
+                print("  cell %s failed: %s" % (futs[fut], e), flush=True)
+            if done[0] % 20 == 0 or done[0] == len(cells):
+                print("  [%d/%d cells] %d sale records so far"
+                      % (done[0], len(cells), len(out)), flush=True)
+
+    with open(combined_path, "w") as f:
+        json.dump(out, f)
+    print("  %d sale records total" % len(out), flush=True)
     return out
 
 
