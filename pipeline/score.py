@@ -296,6 +296,12 @@ def main():
     # to be. Anything downstream that needs geometry reads pools_addressed.json.
     slim = [{k: v for k, v in p.items() if k != "ring"} for p in qualified]
 
+    # Ranking says which leads are best. Qualification says which are clean
+    # enough to post to - a stricter and separate question, since a letter is
+    # spent whether or not the lead behind it was sound.
+    import qualify  # noqa: PLC0415 - keeps the scoring import graph flat
+    stats = qualify.apply(slim)
+
     out = os.path.join(DATA, "leads.json")
     with open(out, "w") as f:
         json.dump({"generated": str(date.today()), "count": len(slim),
@@ -312,6 +318,7 @@ def main():
     print("top suburbs:", Counter(p["suburb"] for p in qualified).most_common(15))
     print("top councils:", Counter(p["council"] for p in qualified).most_common(10))
     print("by pool condition:", Counter(p.get("reno_state") for p in qualified).most_common())
+    qualify.report(slim, stats)
     print("WROTE", out)
 
 

@@ -12,27 +12,42 @@ so it can be backed up or moved between machines.
 JS = r"""
 (function () {
   var DATA = JSON.parse(document.getElementById("lead-data").textContent);
+  // Why a lead is held back, indexed by bit position in qualify.BLOCK_ORDER.
+  var BLOCK_TEXT = JSON.parse(document.getElementById("block-reasons").textContent);
   var ROW_H = 48, OVER = 8, KEY = "sdlfinder-tracking-v1";
   var ORDER = ["new", "mailed", "replied", "quoted", "won", "dead"];
   var LABEL = { new: "Not contacted", mailed: "Mailed", replied: "Replied",
                 quoted: "Quoted", won: "Won", dead: "Not interested" };
   // Column order in each packed record.
   var A = 0, S = 1, PC = 2, YR = 3, SC = 4, CF = 5, AR = 6, LOT = 7,
-      NP = 8, MQ = 9, LAT = 10, LON = 11, CON = 12, CD = 13, EV = 14;
+      NP = 8, MQ = 9, LAT = 10, LON = 11, CON = 12, CD = 13, EV = 14,
+      MR = 15, MB = 16;
   // Pool condition codes, mirroring CONDITION_CODE in build_site.py.
   var COND = [["Green water", "c0"], ["Original look", "c1"],
               ["Redone pre-2005", "c2"], ["Mid tone", "c3"],
               ["Modern dark", "c4"], ["Unconfirmed", "c5"],
               ["Not visible", "c6"]];
   // Every state whose interior is at or past end of life: green water, never
-  // resurfaced, or last resurfaced before 2005 (21-28 years, against a 15-25
-  // year finish life). Ordering inside the set still favours never-touched
-  // pools, because STATE_SCORE scores them higher.
+  // resurfaced, or last resurfaced before 2005 - 21-28 years ago against a
+  // 15-25 year finish life, so due again. Ordering inside the set still
+  // favours never-touched pools, because STATE_SCORE scores them higher.
+  // "Prime" is that judgement alone; "mail-ready" (MR) additionally requires
+  // every evidence check in qualify.py to have come back clean.
   var PRIME = [0, 1, 2];
   var ERA = { 1978: ["pre-1979", "e78"], 1986: ["1979-86", "e86"],
               1991: ["1987-91", "e91"], 1998: ["1992-98", "e98"],
               2005: ["1999-2005", "e05"] };
   var NOW = new Date().getFullYear();
+
+  // Unpack a lead's block bitmask into the reasons it carries.
+  function blockText(mask) {
+    if (!mask) return "";
+    var out = [];
+    for (var i = 0; i < BLOCK_TEXT.length; i++) {
+      if (mask & (1 << i)) out.push(BLOCK_TEXT[i]);
+    }
+    return out.join("; ");
+  }
 
   var track = {};
   try { track = JSON.parse(localStorage.getItem(KEY) || "{}"); } catch (e) { track = {}; }
@@ -141,7 +156,8 @@ JS = r"""
     var out = [];
     for (var i = 0; i < DATA.length; i++) {
       var d = DATA[i];
-      if (cond === "prime") { if (PRIME.indexOf(d[CD]) === -1) continue; }
+      if (cond === "mail") { if (!d[MR]) continue; }
+      else if (cond === "prime") { if (PRIME.indexOf(d[CD]) === -1) continue; }
       else if (cond !== "" && String(d[CD]) !== cond) continue;
       if (minValue != null && d[EV] < minValue) continue;
       if (sub && d[S] !== sub) continue;
@@ -200,6 +216,11 @@ JS = r"""
       var multi = d[NP] > 1 ? '<span class="tag" title="' + d[NP] +
           ' pools mapped on this property">x' + d[NP] + '</span>' : "";
       var approx = d[MQ] === 1 ? '<span class="approx" title="Matched to the nearest parcel, not one containing the pool — check the map link">~</span>' : "";
+      // Only the held-back leads are marked. In the default mail-ready view every
+      // row would otherwise carry an identical "post" tag, which says nothing and
+      // pushes itself off the end of a long address.
+      var hold = d[MR] ? "" :
+        '<span class="tag hold" title="' + esc(blockText(d[MB])) + '">hold</span>';
       var meta = esc(d[S]) + (d[PC] ? " · " + d[PC] : "");
       if (d[CON]) meta += " · " + d[CON];
       var cd = COND[d[CD]] || COND[4];
@@ -207,7 +228,7 @@ JS = r"""
       var dk = distKm(i);
       var distStr = dk == null ? "—" : (dk < 10 ? dk.toFixed(1) : Math.round(dk)) + " km";
       html += '<tr class="lead" data-i="' + i + '" data-s="' + stt + '">' +
-        '<td><span class="addr">' + esc(d[A]) + approx + multi + '</span>' +
+        '<td><span class="addr">' + esc(d[A]) + approx + multi + hold + '</span>' +
         '<span class="meta">' + meta + '</span></td>' +
         '<td><span class="pill ' + era[1] + '">' + era[0] + '</span>' +
         '<span class="ago">' + age + '+ yr</span></td>' +
@@ -283,7 +304,7 @@ JS = r"""
   });
   document.getElementById("reset").addEventListener("click", function () {
     q.value = ""; fSub.value = ""; fEra.value = ""; fSt.value = ""; fCon.value = "";
-    fCond.value = "prime"; fValue.value = "2000000";
+    fCond.value = "mail"; fValue.value = "2000000";
     fAgeMin.value = ""; fAgeMax.value = ""; fRadius.value = ""; fCenter.value = "";
     setCenter(null, "");
     rebuild();
@@ -304,13 +325,15 @@ JS = r"""
   // ── backup ─────────────────────────────────────────────────────
   document.getElementById("export").addEventListener("click", function () {
     var rows = [["address", "suburb", "postcode", "pool_built_by", "min_age_years",
-                 "condition", "est_value", "score", "status", "note"]];
+                 "condition", "est_value", "score", "mail_ready", "held_back_because",
+                 "status", "note"]];
     for (var i = 0; i < DATA.length; i++) {
       var t = track[i];
       if (!t) continue;
       var d = DATA[i];
       rows.push([d[A], d[S], d[PC] || "", d[YR], NOW - d[YR],
                  (COND[d[CD]] || COND[4])[0], d[EV] || "", d[SC],
+                 d[MR] ? "yes" : "no", blockText(d[MB]),
                  t.s || "new", (t.n || "").replace(/"/g, "'")]);
     }
     if (rows.length === 1) { flash("Nothing tracked yet"); return; }

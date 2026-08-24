@@ -15,10 +15,18 @@ between those two gaps separates an original finish from a modern one without
 depending on absolute brightness, which varies with sun angle and capture.
 
 **Surround change.** Re-paving, new coping or a rebuilt deck changes the ring
-of ground immediately around the pool. Comparing that annulus between the old
-and current capture catches renovations that kept the original interior.
+of ground immediately around the pool, so comparing that annulus between the old
+and current capture ought to catch renovations that kept the original interior.
+It does not, and the measurement is kept only as a reported number rather than
+used to classify anything. Across the 8,411-lead set the annulus delta is
+distributed almost identically whatever the pool's current state - median 45 for
+an original-looking finish against 61 for one already redone before 2005, with
+both spreading from single digits past 200. Comparing a half-metre 2005 scan
+against a 7 cm current capture measures the difference in resolution and season
+far more than it measures new paving, and no threshold separates the two
+populations. Judging renovation on it would be guessing with extra steps.
 
-Both are compared against the pool's own local background in the same frame, so
+Tone is compared against the pool's own local background in the same frame, so
 differences in exposure and colour balance between captures cancel out.
 """
 import io
@@ -316,7 +324,6 @@ def turquoise_index(rr, gg, bb):
 NAVY_MAX = 0.55      # below this the water reads deep blue: a modern finish
 ORIGINAL_MIN = 0.80  # above this it reads pale turquoise: an original finish
 GREEN_MIN = 1.10     # above this green outweighs blue: algal, neglected water
-SURROUND_CHANGE = 34.0   # RGB distance in the surround ring that counts as work
 GONE_FRAC = 0.15     # below this there is no longer open water at the footprint
 
 
@@ -335,13 +342,6 @@ def _surround_delta(a, b):
     return round(math.dist(av_, bv), 1)
 
 
-def _went_dark(old_ti, new_ti):
-    """True when the interior moved into the modern dark-finish band."""
-    if old_ti is None or new_ti is None:
-        return False
-    return new_ti < NAVY_MAX and old_ti >= ORIGINAL_MIN
-
-
 def classify(p98, p05, pnow):
     """Judge the pool's finish today, and date the change where history allows.
 
@@ -354,6 +354,16 @@ def classify(p98, p05, pnow):
 
     Known limitation: a resurfacing that went back to a pale finish still reads
     as original. This under-detects renovation rather than inventing it.
+
+    Second known limitation, and the reason the dating of a modern finish below
+    is reported rather than relied on: the two historical captures agree on a
+    pool's tone band only 35% of the time where both could be read (n=5,540),
+    and they disagree in a fixed direction - 1,173 pools read pale in 1998 and
+    navy in 2005 against 185 the other way. That is per-capture colour balance
+    on half-metre scans. So "renovated_recent" and "renovated_pre2005" separate
+    a currently-dark pool by weak evidence; both are already outside the prime
+    set, and qualify.py declines to use historical tone as corroboration for
+    anything it puts a stamp on.
     """
     out = {}
     def ti(p):

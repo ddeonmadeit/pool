@@ -14,6 +14,8 @@ import os
 import shutil
 import sys
 from collections import Counter
+
+import qualify
 from datetime import date
 
 from site_css import CSS
@@ -90,6 +92,8 @@ def pack(leads):
             contact_str(p),
             CONDITION_CODE.get(p.get("reno_state"), 5),
             p.get("estimated_value") or 0,
+            1 if p.get("mail_ready") else 0,
+            p.get("mail_block_mask") or 0,
         ])
     return out
 
@@ -117,7 +121,9 @@ def write_csvs(leads, outdir):
     cols = ["address", "suburb", "postcode", "council", "earliest_confirmed_year",
             "min_age_years", "lead_score", "age_confidence", "address_match",
             "area_m2", "lot_m2", "length_m", "width_m", "rect_fill", "category",
-            "pools_at_address", "reno_state", "ti_now",
+            "pools_at_address", "reno_state", "ti_now", "tone_z",
+            "mail_ready", "mail_block_note",
+            "address_verify", "address_point_m",
             "last_sale_date", "last_sale_price", "contact_name",
             "contact_phone", "contact_email",
             "contact_website", "lat", "lon", "osm_id"]
@@ -131,14 +137,22 @@ def write_csvs(leads, outdir):
         w = csv.DictWriter(f, fieldnames=cols, extrasaction="ignore")
         w.writeheader()
         w.writerows(leads)
+    # This file goes straight to a mail house, so it carries only the leads that
+    # cleared every check in qualify.py - not the whole ranked list. Posting the
+    # ranked list would mail every already-renovated pool in Sydney.
+    postable = [p for p in leads if p.get("mail_ready")]
     with open(os.path.join(outdir, "mail_merge.csv"), "w", newline="") as f:
         w = csv.writer(f)
         w.writerow(["Address", "Suburb", "State", "Postcode", "PoolAgeYearsMin",
-                    "PoolBuiltBefore", "LeadScore"])
-        for p in leads:
+                    "PoolBuiltBefore", "PoolCondition", "EstPropertyValue",
+                    "LeadScore"])
+        for p in postable:
             w.writerow([p.get("address", ""), p.get("suburb", ""), "NSW",
                         p.get("postcode") or "", p.get("min_age_years", ""),
-                        p.get("earliest_confirmed_year", ""), p.get("lead_score", "")])
+                        p.get("earliest_confirmed_year", ""),
+                        p.get("reno_state", ""), p.get("estimated_value") or "",
+                        p.get("lead_score", "")])
+    return len(postable)
 
 
 def build(leads, with_downloads=False):
@@ -148,6 +162,8 @@ def build(leads, with_downloads=False):
     subopts = "".join('<option value="%s">%s</option>' % (html.escape(s), html.escape(s))
                       for s in subs)
     centroid_payload = json.dumps(suburb_centroids(leads), separators=(",", ":"))
+    reason_payload = json.dumps([t for _, t in qualify.BLOCK_ORDER],
+                                separators=(",", ":"))
     cond_counts = Counter(p.get("reno_state") for p in leads)
     condlegend = "".join(
         '<span title="%s"><span class="pill %s">%s</span> <b>%s</b></span>'
@@ -168,7 +184,6 @@ def build(leads, with_downloads=False):
         for y, lbl in ERA if era_counts.get(y))
     eraopts = "".join('<option value="%d">%s</option>' % (y, lbl)
                       for y, lbl in ERA if era_counts.get(y))
-
     return """<title>Pool Finder</title>
 <meta name="description" content="Sydney properties with a pool confirmed 20+ years old from NSW government aerial imagery. Addresses, scoring and direct-mail outreach tracking.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -201,6 +216,7 @@ def build(leads, with_downloads=False):
   <input type="search" id="q" placeholder="Search address, suburb or postcode&hellip;" aria-label="Search">
   <span class="ctl-label">Condition</span>
   <select id="f-cond" aria-label="Pool condition">
+    <option value="mail">Mail-ready &mdash; every check clean</option>
     <option value="prime">Prime &mdash; due for work</option>
     <option value="">Any condition</option>__CONDOPTS__
   </select>
@@ -275,6 +291,23 @@ def build(leads, with_downloads=False):
 </div>
 
 <footer>
+  <b>Mail-ready</b> is the default view and the strictest one: leads where every
+  check behind the address came back clean, which is what the
+  <a href="mail_merge.csv" download>mail_merge.csv</a> extract contains. A lead is held
+  back &mdash; hover its <span class="tag hold">hold</span> tag for the reason &mdash; when
+  the pool sits more than 3&nbsp;m outside the parcel its address belongs to, when the
+  dating match had to slide 8&nbsp;m or more to find water and may have found the
+  neighbour's pool, when several pools share the one address so it is not a single
+  household, when only part of the footprint reads as water today, when the suburb,
+  postcode or estimated value is missing, or when the pale reading is not convincing
+  enough. That last one costs the most leads. The tone index is one smooth distribution
+  with no natural break, so a reading of 0.81 is not a pale pool, it is a pool that
+  landed just on the pale side of a drawn line &mdash; and an absolute line does not
+  measure the same thing everywhere, because tone reads systematically paler in the
+  treeless inner east and west than in the canopied north. So a lead has to clear an
+  absolute floor <em>and</em> read as an outlier against its own suburb's median and
+  spread. Switch <b>Condition</b> to <b>Prime</b> to see every original-looking or green
+  pool including those held back.<br>
   <b>How the age is proven</b> &mdash; every pool footprint is sampled against NSW Spatial
   Services historical aerial imagery. A lead appears here only if open water showed at its
   mapped position in 1998 or 2005 imagery, so the pool pre-dates 2006.<br>
@@ -283,11 +316,26 @@ def build(leads, with_downloads=False):
   or painted render and read pale turquoise from above; modern pebblecrete, dark quartz
   and glass mosaic read deep navy. A pool that moved into the navy band has been
   resurfaced &mdash; recently if it happened after 2005, and those are dropped down the
-  list. Properties where no open water is visible today are removed altogether. Surround
-  paving was tested as a second signal and rejected: two captures of an untouched yard
-  differ more from season and sun angle than from actual work. A resurfacing that went
-  back to a pale finish will read as original, so this under-detects renovation rather
-  than inventing it.<br>
+  list. Properties where no open water is visible today are removed altogether.
+  The current capture is the only tone reading trusted for the mail run. Dating a dark
+  finish against the historical captures is reported but not relied on: on the 5,540
+  pools readable in both, the 1998 and 2005 captures agree on the tone band only 35% of
+  the time and disagree in a fixed direction, which is per-capture colour balance on
+  half-metre scans rather than pools changing. Surround paving was tested as a second
+  signal and rejected on the same grounds &mdash; its spread is near identical whether a
+  pool reads original or already redone. A resurfacing that went back to a pale finish
+  will read as original, so this under-detects renovation rather than inventing it.<br>
+  <b>What the tone reading is worth</b> &mdash; it narrows the list, and it is not proof
+  about any one pool. Two things measured across the set bound it. Tone carries a strong
+  per-suburb component (suburb medians run 0.42 to 0.78, the pale end the treeless inner
+  east and west, the dark end the canopied north), which looks like capture conditions and
+  shade rather than pool finishes &mdash; measured inside a suburb the effect vanishes,
+  which is how you know it is the frame and not the pools; the mail-ready bar is therefore
+  drawn against each suburb's own baseline. And holding suburb constant, pools confirmed present in
+  1978&ndash;91 read no paler today than pools that only appear by 2005 &mdash; so tone
+  does not measurably track pool age. What is solid underneath it is the age, proven from
+  imagery and audited against the source, the address, proven from the cadastre, and green
+  water, which is direct evidence that maintenance has been deferred.<br>
   <b>Score</b> blends confirmed age (34%), pool condition (34%), pre-2000 shape
   signature (11%), block size (9%) and imagery confidence (12%). <b>Conf</b> is how clean the imagery read was, 0&ndash;1;
   below 0.45, check the map link before posting. <b>~</b> means the address came from the
@@ -309,20 +357,23 @@ def build(leads, with_downloads=False):
 </div>
 
 <script type="application/json" id="lead-data">__PAYLOAD__</script>
+<script type="application/json" id="block-reasons">__REASONS__</script>
 <script type="application/json" id="centroid-data">__CENTROIDS__</script>
 <script>__JS__</script>
 """.replace("__CSS__", CSS).replace("__JS__", JS) \
    .replace("__PAYLOAD__", payload) \
    .replace("__CENTROIDS__", centroid_payload) \
+   .replace("__REASONS__", reason_payload) \
    .replace("__SUBOPTS__", subopts).replace("__ERAOPTS__", eraopts) \
    .replace("__LEGEND__", legend) \
    .replace("__CONDLEGEND__", condlegend) \
    .replace("__CONDOPTS__", condopts) \
    .replace("__DOWNLOADS__", (
-       '<b>Download</b> the full list: <a href="mail_merge.csv" download>mail_merge.csv</a> '
-       '(addresses only, ready for a mail house) or '
-       '<a href="leads_full.csv" download>leads_full.csv</a> (every field).<br>'
-   ) if with_downloads else "") \
+       '<b>Download</b> <a href="mail_merge.csv" download>mail_merge.csv</a> '
+       '(the mail-ready leads only, addressed and ready for a mail house) or '
+       '<a href="leads_full.csv" download>leads_full.csv</a> (every lead, every field, '
+       'with the reason each held-back one was held back).<br>'
+   ) if with_downloads else "")
 
 
 def main():
