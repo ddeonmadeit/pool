@@ -127,7 +127,7 @@ def fetch_recent_sales(bbox=SYDNEY_BBOX, years=3):
             "where": "strata=0 AND last_sale=\'Y\'",
             "outFields": "*", "returnGeometry": "false",
             "resultRecordCount": "1000", "resultOffset": str(offset),
-        }, timeout=120, retries=4)
+        }, timeout=35, retries=3)
         batch = d.get("features", [])
         feats.extend(batch)
         print("  ...%d sale records so far" % len(feats), flush=True)
