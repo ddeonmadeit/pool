@@ -55,7 +55,7 @@ def main():
             return {"osm_id": oid, "state": "unknown", "reason": "no geometry"}
         ring = src["ring"]
         try:
-            pnow = rv.probe(rv.current_tile, ring)
+            pnow = rv.probe(rv.current_tile, ring, z=rv.CUR_ZOOM, search_m=rv.CUR_SEARCH_M)
             p05 = rv.probe(lambda z, x, y: av.fetch_tile(2005, z, x, y), ring)
             p98 = rv.probe(lambda z, x, y: av.fetch_tile(1998, z, x, y), ring)
             rec = rv.classify(p98, p05, pnow)
