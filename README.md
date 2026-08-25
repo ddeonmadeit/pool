@@ -122,7 +122,7 @@ from the `POOL_WORKERS` and `AGE_WORKERS` environment variables.
 Ranking orders the whole list. Qualifying is a separate and stricter question,
 because a letter is spent whether or not the lead behind it was sound, so
 `qualify.py` applies hard gates and records on every lead exactly which ones
-fired. 1,469 of 12,476 leads clear all of them; 1,280 also clear the $2M value
+fired. 1,532 of 12,132 leads clear all of them; 1,353 also clear the $2M value
 filter the site opens with. `mail_merge.csv` carries only those, and the site
 opens on the same set.
 
@@ -169,11 +169,11 @@ unaffected, but `geocode.py` matched almost every address to the wrong parcel.
 Shifting the arithmetic to be relative to the polygon's own first vertex
 before adding the origin back keeps it at the polygon's scale and fixes this.
 
-Re-run after that fix, across all **12,476** leads: **12,359 verified
-(99.1%)**, 115 unverifiable, 2 suspect. Only 59 leads still need the
+Re-run after that fix, across all **12,132** leads: **12,018 verified
+(99.1%)**, 112 unverifiable, 2 suspect. Only 56 leads still need the
 nearest-parcel fallback (down from 1,961 before the fix, since real addresses
-now sit inside their real parcel); 56 of those 59 (94.9%) verify. Net effect
-on the mail run: **1,469 mail-ready**, 1,280 of them at $2M+.
+now sit inside their real parcel); 52 of those 56 (92.9%) verify. Net effect
+on the mail run: **1,532 mail-ready**, 1,353 of them at $2M+.
 
 A related fix came out of the same audit. Suburb was being read off the end of
 the address string by looking for a street type, which mis-parsed three ways -
@@ -182,7 +182,61 @@ IVES` became "Ives" (`ST` read as an abbreviated `STREET`), and streets with no
 street type at all (`THE GREENWAY`) fell back to the last word. Matching the
 tail of the address against the authoritative 746-suburb list instead, longest
 match first, resolves all three without knowing anything about street naming.
-Postcode coverage is now **12,476 of 12,476**.
+Postcode coverage is now **12,132 of 12,132**.
+
+### The current-imagery read was silently done at the wrong zoom
+
+A second bug came out of visually spot-checking leads against the source
+imagery rather than trusting the numbers. Two `renovated_pre2005` leads with
+`water_frac_now` above 0.97 - which should mean "the footprint is almost
+entirely water" - showed no pool at all at the mapped position when actually
+viewed. Both were dense-canopy properties where the read had locked onto
+shaded roof or ground instead.
+
+The root cause was `run_renovation.py` calling `probe()` for the current
+capture with no `z=` or `search_m=` argument, so it silently took `probe`'s
+defaults (z18, a 10 m search) instead of the `CUR_ZOOM=20, CUR_SEARCH_M=2.5`
+that `renovation.py` defines - and documents, in a comment written *before*
+this bug was found, that z18 dithers current imagery badly enough to corrupt
+the colour average (mean adjacent-pixel difference 22, against 7.9 at z20).
+The constants existed; the call that was supposed to use them never did.
+
+Fixing the call and re-classifying all 12,476 leads at z20 changed **2,037 of
+them (16.3%)** - not a small correction. The most consequential shift: **521
+leads** whose footprint no longer reads as water at all now correctly report
+`not_visible` (filled in, decked over, or drained) instead of an invented
+finish, and `score.py` already excludes that state from the qualified list -
+these are exactly the "renovate your pool" letters that would have gone to a
+property with no pool. `neglected` also nearly tripled (24 -> 65), which reads
+as z18's dithering smearing genuinely green water toward the middle of the
+tone range. Total qualified leads fell from 12,476 to **12,132** as a result.
+
+**This does not fully close the gap.** A follow-up visual audit at the
+corrected zoom, sampling every `neglected` lead in the default view plus a
+suburb-stratified spread of `original_finish` and `renovated_pre2005` leads
+(52 total, 30 checked individually against the imagery), found:
+
+- `original_finish`, including every lead in the marginal 0.80-0.85 band: 16
+  of 16 checked showed a real pool, pale-toned, at the mapped position.
+- `neglected`: 6 of 6 checked showed a real pool with visibly green or murky
+  water.
+- `renovated_pre2005`: 14 of 16 checked showed a real dark pool. The other 2
+  sat under heavy tree canopy with no pool visible in the current capture at
+  any zoom - the same failure mode as the two that motivated this fix, just
+  not severe enough for `water_frac_now` to drop below the reliability
+  threshold.
+
+So the fix works - it visibly reduced the failure rate and gave the "pool is
+gone" case a real, actionable label - but canopy occlusion on a dark-reading
+pool is a limitation of aerial imagery itself, not a bug with a further code
+fix available. It is specific to the dark/`renovated_pre2005` reading:
+a shaded roof or garden bed can look sufficiently navy to fool the colour
+test, but a shaded area does not read pale, so `original_finish` and
+`neglected` are not exposed to it. On this sample that puts roughly one in
+eight `renovated_pre2005` leads at risk of being a wasted letter - worth
+knowing, not worth excluding the whole category over, since the other seven
+are the intended target and this class was only added to the mail run because
+a pool resurfaced before 2005 is due again.
 
 ### What the tone reading can and cannot carry
 
@@ -239,18 +293,18 @@ for a long time capped by a refinement budget, which left leads sitting at
 `earliest_confirmed_year == 1998` on a single observation - a floor set by the
 budget rather than a finding. That gap is now closed: **no lead is left with a
 1998 floor and only one observation**. Era distribution across the current
-12,476 leads: 1986 - 3,093, 1991 - 3,593, 1998 - 3,095, 2005 - 2,695.
+12,132 leads: 1986 - 3,014, 1991 - 3,521, 1998 - 2,984, 2005 - 2,613.
 
-Of the 3,095 leads still dated 1998, 2,933 carry an explicit 1991 *absent*
-observation behind them - negative evidence, not missing data. The other 162
-have no 1991 imagery to check against at all (`no_imagery`, not `absent`), so
+Of the 2,984 leads still dated 1998, 2,825 carry an explicit 1991 *absent*
+observation behind them - negative evidence, not missing data. The rest have
+no 1991 imagery to check against at all (`no_imagery`, not `absent`), so
 their 1998 date remains a floor rather than a finding, same as before
 refinement closed the gap for everyone else.
 
-The 2,695 leads at 2005 are mostly not walked back further: 2,639 of them
+The 2,613 leads at 2005 are mostly not walked back further: 2,559 of them
 carry `[(1998, absent), (2005, present)]`, so the pool demonstrably did not
 exist in 1998 and looking earlier can only confirm the same absence. For the
-same reason 107 mail-ready leads have no observation older than 1998 - these
+same reason 92 mail-ready leads have no observation older than 1998 - these
 are 2005-era pools, not unmeasured ones.
 
 The gates still do not filter on confirmed age, because 20+ years is already
@@ -333,10 +387,10 @@ not just the mail-ready ones - it opens filtered to those, and the Condition
 control widens it back out. Nothing is truncated: the whole set ships inline as
 a packed array-of-arrays and the table is virtualised, so only the ~30 rows
 actually on screen exist in the DOM at any moment. Measured in headless
-Chromium with the font host blocked, all 12,476 leads reach interactive in
-**~0.4 s**, and re-filtering the full set takes **~4 ms**. Each lead's hold
+Chromium with the font host blocked, all 12,132 leads reach interactive in
+**~0.25 s**, and re-filtering the full set takes **~4 ms**. Each lead's hold
 reasons ship as a bitmask over `qualify.BLOCK_ORDER` rather than as text -
-12,476 copies of the same English sentences would cost roughly 1 MB on their
+12,132 copies of the same English sentences would cost roughly 1 MB on their
 own, which is most of the page again.
 
 Outreach state is kept in `localStorage`, keyed by pool id. **Back up** copies it
