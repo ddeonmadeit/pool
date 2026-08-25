@@ -122,13 +122,13 @@ from the `POOL_WORKERS` and `AGE_WORKERS` environment variables.
 Ranking orders the whole list. Qualifying is a separate and stricter question,
 because a letter is spent whether or not the lead behind it was sound, so
 `qualify.py` applies hard gates and records on every lead exactly which ones
-fired. 1,187 of 8,411 leads clear all of them; 1,008 also clear the $2M value
+fired. 1,469 of 12,476 leads clear all of them; 1,280 also clear the $2M value
 filter the site opens with. `mail_merge.csv` carries only those, and the site
 opens on the same set.
 
 | Gate | Why |
 |---|---|
-| No official address point near the pool | The authoritative check. Each assigned address is looked up in the NSW principal address points and the distance to the pool measured; 121 leads have no plausible point and are held back. This replaced a parcel-containment rule that got it wrong both ways - see below. |
+| No official address point near the pool | The authoritative check. Each assigned address is looked up in the NSW principal address points and the distance to the pool measured; 117 leads have no plausible point and are held back. This replaced a parcel-containment rule that got it wrong both ways - see below. |
 | Dating match slid 8 m or more | The age detector searches ±10 m to absorb georeferencing drift. A match that had to travel that far probably found the pool next door, and with it the neighbour's construction date. |
 | Several pools on one address | The fingerprint of a duplex, dual occupancy or estate: the addressee may not be who can commission the work. |
 | Not a private residential pool | A club or council pool is not this offer. |
@@ -148,22 +148,32 @@ an inference about geometry, never a check that the address exists.
 `verify_addresses.py` adds the real check, against the NSW **principal address
 points** - the authoritative record of where an address is. For each lead it
 measures the distance from the pool to the official point for its assigned
-address. Across all 8,411 leads: **8,290 verified (98.6%)**, 118 unverifiable,
-3 suspect. Of the 1,961 leads that came from the nearest-parcel fallback -
-the ones the old rule most distrusted - **1,915 (97.7%) verify**.
+address. When this check first ran, alongside a parcel-containment rule that
+rejected any address more than 3 m outside its parcel, the two disagreed in
+both directions: 409 prime leads the parcel rule rejected verified against an
+official point a median of 27 m away (the distance from a backyard pool to its
+own house, not a mis-assignment), while 31 leads the parcel rule waved through
+had no plausible official point at all - the genuinely wrong addresses. So the
+authoritative check was made to decide, and parcel containment now only rules
+on leads it cannot see.
 
-Run against the prime set, the two rules disagree in both directions, and the
-parcel rule is wrong in both:
+That same comparison also surfaced a much larger problem: `centroid()`, which
+turns each pool's polygon into the single point `geocode.py` assigns an
+address from, ran the shoelace formula directly on raw lat/lon. Coordinates
+that far from the origin make the formula subtract nearly-equal numbers near
+5,000 to recover a difference around 1e-9, which erases every significant
+digit double precision has. The result: **99.3% of pools were assigned from a
+point a median 421 m from their true position**, worst for the smallest pools.
+Dating and renovation detection read the polygon ring directly and were
+unaffected, but `geocode.py` matched almost every address to the wrong parcel.
+Shifting the arithmetic to be relative to the polygon's own first vertex
+before adding the origin back keeps it at the polygon's scale and fixes this.
 
-- **409 prime leads it rejected** verify against an official address point a
-  median of 27 m away (max 68 m). That is the distance from a backyard pool to
-  its own house on a normal Sydney block, not a mis-assignment. These were good
-  leads being thrown away.
-- **31 leads it accepted** have no plausible official point at all. Those are
-  the genuinely wrong addresses, and they were heading for the mail run.
-
-So the authoritative check now decides, and parcel containment only rules on
-the leads it cannot see. Net effect on the mail run: 980 → 1,187 mail-ready.
+Re-run after that fix, across all **12,476** leads: **12,359 verified
+(99.1%)**, 115 unverifiable, 2 suspect. Only 59 leads still need the
+nearest-parcel fallback (down from 1,961 before the fix, since real addresses
+now sit inside their real parcel); 56 of those 59 (94.9%) verify. Net effect
+on the mail run: **1,469 mail-ready**, 1,280 of them at $2M+.
 
 A related fix came out of the same audit. Suburb was being read off the end of
 the address string by looking for a street type, which mis-parsed three ways -
@@ -172,7 +182,7 @@ IVES` became "Ives" (`ST` read as an abbreviated `STREET`), and streets with no
 street type at all (`THE GREENWAY`) fell back to the last word. Matching the
 tail of the address against the authoritative 746-suburb list instead, longest
 match first, resolves all three without knowing anything about street naming.
-Postcode coverage went from 8,363 to **8,411 of 8,411**.
+Postcode coverage is now **12,476 of 12,476**.
 
 ### What the tone reading can and cannot carry
 
@@ -225,28 +235,23 @@ maintenance. Tone narrows the list; it is not proof about any one pool.
 ### Ages that were never looked for: closed
 
 `refine_ages.py` walks pools back through 1991 / 1986 / 1978, and that pass was
-for a long time capped by a refinement budget, which left 2,476 leads sitting at
+for a long time capped by a refinement budget, which left leads sitting at
 `earliest_confirmed_year == 1998` on a single observation - a floor set by the
 budget rather than a finding. That gap is now closed: **no lead is left with a
-1998 floor and only one observation**, and all 1,997 leads still dated 1998
-carry an explicit 1991 *absent* observation behind them. Their date is negative
-evidence now, not missing data.
+1998 floor and only one observation**. Era distribution across the current
+12,476 leads: 1986 - 3,093, 1991 - 3,593, 1998 - 3,095, 2005 - 2,695.
 
-Walking the shortlist back moved roughly 1,600 leads older, and the era
-distribution shifted accordingly:
+Of the 3,095 leads still dated 1998, 2,933 carry an explicit 1991 *absent*
+observation behind them - negative evidence, not missing data. The other 162
+have no 1991 imagery to check against at all (`no_imagery`, not `absent`), so
+their 1998 date remains a floor rather than a finding, same as before
+refinement closed the gap for everyone else.
 
-| earliest confirmed | before | after |
-|---|---|---|
-| 1986 | 1,270 | **2,099** |
-| 1991 | 1,653 | **2,432** |
-| 1998 | 3,605 | 1,997 |
-| 2005 | 1,883 | 1,883 |
-
-The 1,883 leads at 2005 are deliberately not walked back: each carries
-`[(1998, absent), (2005, present)]`, so the pool demonstrably did not exist in
-1998 and looking earlier can only confirm the same absence. For the same reason
-104 mail-ready leads have no observation older than 1998 - all 104 are 2005-era
-pools, not unmeasured ones.
+The 2,695 leads at 2005 are mostly not walked back further: 2,639 of them
+carry `[(1998, absent), (2005, present)]`, so the pool demonstrably did not
+exist in 1998 and looking earlier can only confirm the same absence. For the
+same reason 107 mail-ready leads have no observation older than 1998 - these
+are 2005-era pools, not unmeasured ones.
 
 The gates still do not filter on confirmed age, because 20+ years is already
 guaranteed by the qualifying question itself; the refined date sharpens ranking
@@ -328,11 +333,11 @@ not just the mail-ready ones - it opens filtered to those, and the Condition
 control widens it back out. Nothing is truncated: the whole set ships inline as
 a packed array-of-arrays and the table is virtualised, so only the ~30 rows
 actually on screen exist in the DOM at any moment. Measured in headless
-Chromium with the font host blocked, all 8,411 leads reach interactive in
-**0.33 s**, and re-filtering the full set takes **10 ms**. Each lead's hold
+Chromium with the font host blocked, all 12,476 leads reach interactive in
+**~0.4 s**, and re-filtering the full set takes **~4 ms**. Each lead's hold
 reasons ship as a bitmask over `qualify.BLOCK_ORDER` rather than as text -
-8,411 copies of the same English sentences cost 670 KB on their own, which is
-most of the page again.
+12,476 copies of the same English sentences would cost roughly 1 MB on their
+own, which is most of the page again.
 
 Outreach state is kept in `localStorage`, keyed by pool id. **Back up** copies it
 to the clipboard as JSON and **Restore** reads it back, which is how you move

@@ -18,7 +18,7 @@ depending on absolute brightness, which varies with sun angle and capture.
 of ground immediately around the pool, so comparing that annulus between the old
 and current capture ought to catch renovations that kept the original interior.
 It does not, and the measurement is kept only as a reported number rather than
-used to classify anything. Across the 8,411-lead set the annulus delta is
+used to classify anything. Across the qualified-lead set the annulus delta is
 distributed almost identically whatever the pool's current state - median 45 for
 an original-looking finish against 61 for one already redone before 2005, with
 both spreading from single digits past 200. Comparing a half-metre 2005 scan

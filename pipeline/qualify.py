@@ -8,30 +8,38 @@ gate, and every gate records *why* it fired so the decision is auditable
 address by address.
 
 Each gate below is justified by what the collected evidence actually supports,
-measured over the 8,411-lead set rather than assumed.
+measured over the qualified-lead set rather than assumed. Figures in this
+docstring were true at the time each gate was designed and are not
+re-computed on every run; see README.md for the current numbers, which are
+recomputed each time the pipeline ships.
 
 **Where the address came from.** `geocode.py` puts a pool inside a cadastral
 parcel when it can, and otherwise falls back to the closest parcel within 30 m.
-1,961 leads came from that fallback, a median of 4.8 m out. That offset was
-originally gated at 3 m on the reasoning that anything further was the
-neighbour's title - a fair inference when parcel containment was the only
-address evidence there was.
+That offset was originally gated at 3 m on the reasoning that anything further
+was the neighbour's title - a fair inference when parcel containment was the
+only address evidence there was.
 
 It is no longer the only evidence. `verify_addresses.py` checks each assigned
 address against the NSW principal address points, which is the authoritative
-answer to "does this address exist where we think it does", and it disagrees
-with the parcel rule in both directions. 409 prime leads the 3 m rule rejected
-verify against an official point a median of 27 m away - the distance from a
-backyard pool to its own house, not a mis-assignment. Meanwhile 31 leads the
-parcel rule waved through have no plausible official point at all, and those
-are the genuinely wrong addresses. So the authoritative check decides, and
-parcel containment only rules on the leads it cannot see.
+answer to "does this address exist where we think it does", and it disagreed
+with the parcel rule in both directions: leads the 3 m rule rejected often
+verified against an official point tens of metres away - the distance from a
+backyard pool to its own house, not a mis-assignment - while some leads the
+parcel rule waved through had no plausible official point at all. So the
+authoritative check decides, and parcel containment only rules on the leads
+it cannot see.
+
+(That same comparison also surfaced a real bug: `centroid()` in `common.py`
+was computing each pool's address point 421 m off median on 99.3% of pools,
+from floating-point cancellation in the shoelace formula run on raw lat/lon.
+Fixed by shifting to the first vertex before the area-weighted sum. Every
+address in this dataset was reassigned after that fix.)
 
 **Whether the dated pool is this pool.** The age detector slides the footprint
 over a +/-10 m window to absorb georeferencing drift in the historical mosaics
 and keeps the best response. A match that had to travel 8 m or more to find
 water is more likely to have found the pool next door than this one, and with
-it the neighbour's construction date. 439 prime leads sit there.
+it the neighbour's construction date.
 
 **Whether one letter reaches one decision-maker.** Several pools collapsing
 onto a single address is the fingerprint of a duplex, dual occupancy or estate:
@@ -153,8 +161,8 @@ MIN_SUBURB_SAMPLES = 25
 PRIME_STATES = ("neglected", "original_finish", "renovated_pre2005")
 
 # Ordered, because the site ships each lead's blocks as a bitmask over this
-# list rather than as text - 8,411 copies of an English sentence cost more than
-# half a megabyte on the page, and the strings are identical every time.
+# list rather than as text - thousands of copies of an English sentence cost
+# real weight on the page, and the strings are identical every time.
 BLOCK_ORDER = [
     ("not_prime", "Pool does not read as an original finish or green water"),
     ("tone_marginal", "Pale reading sits too close to the mid-tone boundary"),
