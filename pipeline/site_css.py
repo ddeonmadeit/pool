@@ -239,12 +239,38 @@ footer a{color:var(--signal-glow);text-decoration:none;}
   font-family:"IBM Plex Mono",monospace;font-size:.58rem;color:var(--cream-500);
   letter-spacing:.08em;align-items:center;}
 .legend b{color:var(--cream-100);font-weight:600;}
+
+/* ── Page nav ──────────────────────────────────────────────────── */
+.pagenav{display:flex;gap:6px;}
+.pagenav a{font-family:"IBM Plex Mono",monospace;font-size:.6rem;font-weight:600;
+  letter-spacing:.14em;text-transform:uppercase;color:var(--cream-500);
+  text-decoration:none;padding:5px 11px;border-radius:6px;
+  transition:color 120ms ease,background 120ms ease;}
+.pagenav a:hover{color:var(--cream-100);}
+.pagenav a.on{color:#ffd9b8;background:rgba(197,96,44,.22);
+  box-shadow:inset 0 0 0 1px rgba(197,96,44,.35);}
+
+/* ── Mail List page ────────────────────────────────────────────── */
+.job-cols{display:grid;grid-template-columns:1fr 1fr;gap:20px;align-items:start;}
+.job-cols select{max-width:none;width:100%;font-size:.8rem;padding:11px 12px;}
+.jobcount{font-family:"IBM Plex Mono",monospace;font-size:.6rem;font-weight:600;
+  color:var(--cream-500);letter-spacing:.06em;}
+.jobdetail{margin-top:14px;padding:14px 16px;border-radius:10px;
+  background:linear-gradient(180deg,var(--panel-800),var(--panel-900));
+  box-shadow:inset 0 0 0 1px rgba(0,0,0,.4);min-height:56px;}
+.jobdetail .addr{font-size:.94rem;margin-bottom:6px;}
+.jobrow{display:flex;flex-wrap:wrap;gap:6px 14px;align-items:center;
+  font-family:"IBM Plex Mono",monospace;font-size:.62rem;color:var(--cream-500);}
+.jobrow .val{font-family:Inter,sans-serif;color:#ffbe85;font-weight:800;font-size:.9rem;}
+.jobdetail .empty{padding:6px 0;font-size:.72rem;text-align:left;}
+.job-well .well-head{gap:10px;flex-wrap:wrap;}
 @media (max-width:760px){
   :root{--pad:10px;}
   .shell{padding-bottom:60px;}
   .scroller{height:70vh;}
   .ctl-group{width:100%;}
   select{max-width:150px;}
+  .job-cols{grid-template-columns:1fr;}
 }
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important;}}
 """

@@ -20,6 +20,7 @@ from datetime import date
 
 from site_css import CSS
 from site_js import JS
+from site_maillist_js import JS as MAILLIST_JS
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DATA = os.path.join(HERE, "..", "data")
@@ -96,6 +97,129 @@ def pack(leads):
             p.get("mail_block_mask") or 0,
         ])
     return out
+
+
+def pack_jobs(leads):
+    """Compact record layout for the Mail List page, mirrored in site_maillist_js."""
+    out = []
+    for p in leads:
+        out.append([
+            p.get("address") or "",
+            p.get("suburb") or "",
+            p.get("postcode") or "",
+            p.get("estimated_value") or 0,
+            CONDITION_CODE.get(p.get("reno_state"), 5),
+            p.get("earliest_confirmed_year") or 0,
+            round(p.get("lead_score") or 0),
+            round(p.get("lat"), 5),
+            round(p.get("lon"), 5),
+            contact_str(p),
+        ])
+    return out
+
+
+def value_band(leads, lo, hi=None):
+    """Mail-ready leads with an estimated value in [lo, hi), one per address.
+
+    mail_ready leads are already one-per-address (score.py collapses shared
+    titles before qualify.py ever sees them), but the dropdown is a mail list
+    - a duplicate here is a duplicate letter - so it is de-duplicated again
+    rather than trusting that invariant to hold forever upstream.
+    """
+    seen = set()
+    out = []
+    for p in sorted(leads, key=lambda p: -(p.get("lead_score") or 0)):
+        if not p.get("mail_ready"):
+            continue
+        v = p.get("estimated_value") or 0
+        if v < lo or (hi is not None and v >= hi):
+            continue
+        key = (p.get("address") or "").strip().upper()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        out.append(p)
+    return out
+
+
+def build_maillist(leads):
+    band_hi = value_band(leads, 8_000_000)
+    band_mid = value_band(leads, 4_000_000, 8_000_000)
+    payload_hi = json.dumps(pack_jobs(band_hi), separators=(",", ":"), ensure_ascii=False)
+    payload_mid = json.dumps(pack_jobs(band_mid), separators=(",", ":"), ensure_ascii=False)
+
+    return """<title>Mail List &mdash; SDL Finder</title>
+<meta name="description" content="Sydney pool-renovation leads sorted into value bands for a physical-mail run.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" media="print" onload="this.media='all'" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800;900&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800;900&family=IBM+Plex+Mono:wght@400;500;600&display=swap"></noscript>
+<style>__CSS__</style>
+
+<div class="shell">
+
+<div class="chassis">
+  <span class="brand">SDL<i>FINDER</i></span>
+  <span class="pagetag">Mail List</span>
+  <span class="spacer"></span>
+  <nav class="pagenav"><a href="index.html">Pool Finder</a><a href="mail-list.html" class="on">Mail List</a></nav>
+</div>
+
+<div class="stats">
+  <div class="stat"><div class="v">__N_HI__</div><div class="k">$8M and up</div></div>
+  <div class="stat"><div class="v">__N_MID__</div><div class="k">$4M &ndash; $8M</div></div>
+</div>
+
+<div class="job-cols">
+
+  <div class="well job-well">
+    <div class="well-head">
+      <span class="well-title">$8,000,000 and up</span>
+      <span class="jobcount" id="count-8m"></span>
+      <span class="spacer"></span>
+      <button type="button" class="key" id="copy-8m">Copy all addresses</button>
+    </div>
+    <div style="padding:16px 18px;">
+      <select id="band-8m" aria-label="Property, 8 million and up"></select>
+      <div class="jobdetail" id="detail-8m"></div>
+    </div>
+  </div>
+
+  <div class="well job-well">
+    <div class="well-head">
+      <span class="well-title">$4,000,000 &ndash; $7,999,999</span>
+      <span class="jobcount" id="count-4-8m"></span>
+      <span class="spacer"></span>
+      <button type="button" class="key" id="copy-4-8m">Copy all addresses</button>
+    </div>
+    <div style="padding:16px 18px;">
+      <select id="band-4-8m" aria-label="Property, 4 to 8 million"></select>
+      <div class="jobdetail" id="detail-4-8m"></div>
+    </div>
+  </div>
+
+</div>
+
+<footer>
+  Pulled from the same <b>mail-ready</b> set as Pool Finder &mdash; every check
+  behind the address (age, condition, parcel and official address-point
+  match) already came back clean; this page only re-sorts that set into two
+  value bands for working through highest-value prospects first. Each
+  dropdown carries one entry per address, sorted best-score-first, with no
+  duplicates and no overlap between the two bands. <b>Est. value</b> comes
+  from the NSW Valuer General's land value scaled by suburb sale ratios -
+  treat it as a shortlisting filter, not a number to quote back to an owner.
+</footer>
+</div>
+
+<script type="application/json" id="jobs-8m">__PAYLOAD_HI__</script>
+<script type="application/json" id="jobs-4-8m">__PAYLOAD_MID__</script>
+<script>__JS__</script>
+""".replace("__CSS__", CSS).replace("__JS__", MAILLIST_JS) \
+   .replace("__PAYLOAD_HI__", payload_hi) \
+   .replace("__PAYLOAD_MID__", payload_mid) \
+   .replace("__N_HI__", format(len(band_hi), ",")) \
+   .replace("__N_MID__", format(len(band_mid), ","))
 
 
 def suburb_centroids(leads):
@@ -198,6 +322,7 @@ def build(leads, with_downloads=False):
   <span class="brand">SDL<i>FINDER</i></span>
   <span class="pagetag">Pool Finder</span>
   <span class="spacer"></span>
+  <nav class="pagenav"><a href="index.html" class="on">Pool Finder</a><a href="mail-list.html">Mail List</a></nav>
 </div>
 
 <div class="stats">
@@ -388,8 +513,11 @@ def main():
     os.makedirs(SITE, exist_ok=True)
     with open(os.path.join(SITE, "index.html"), "w") as f:
         f.write(build(leads, with_downloads=False))
+    with open(os.path.join(SITE, "mail-list.html"), "w") as f:
+        f.write(build_maillist(leads))
 
     docs_page = build(leads, with_downloads=True)
+    maillist_page = build_maillist(leads)
 
     # GitHub Pages can be pointed at either the repo root or /docs, and which
     # one is actually selected has proven unreliable to confirm from outside
@@ -401,13 +529,15 @@ def main():
         os.makedirs(target, exist_ok=True)
         with open(os.path.join(target, "index.html"), "w") as f:
             f.write(docs_page)
+        with open(os.path.join(target, "mail-list.html"), "w") as f:
+            f.write(maillist_page)
         open(os.path.join(target, ".nojekyll"), "w").close()
         if with_extras:
             for name in ("mail_merge.csv", "leads_full.csv"):
                 shutil.copyfile(os.path.join(DATA, name), os.path.join(target, name))
 
-    print("WROTE site/index.html, docs/index.html and index.html (root) (%.0f KB)"
-          % (len(docs_page.encode()) / 1024))
+    print("WROTE site/index.html, docs/index.html and index.html (root), "
+          "plus mail-list.html in each (%.0f KB)" % (len(docs_page.encode()) / 1024))
     print("leads embedded:", len(leads))
 
 
