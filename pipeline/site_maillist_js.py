@@ -1,9 +1,8 @@
-"""JS for the Mail List page: two value-band dropdowns over the mail-ready set.
+"""JS for the Mail List page: two value-band lists over the mail-ready set.
 
-Each dropdown is populated from its own embedded JSON array (already
-deduplicated by address and sorted best-score-first in build_site.py), so
-this script only has to render options and a detail readout for whichever
-job is selected.
+Each band is populated from its own embedded JSON array (already deduplicated
+by address and sorted best-score-first in build_site.py), so this script only
+has to render the list and wire the copy-all-addresses button per band.
 """
 
 JS = r"""
@@ -26,36 +25,26 @@ JS = r"""
     return "$" + Math.round(n / 1000) + "K";
   }
 
-  function band(id, dataId, countId, detailId) {
+  function band(dataId, countId, listId) {
     var raw = document.getElementById(dataId).textContent;
     var rows = raw ? JSON.parse(raw) : [];
-    var sel = document.getElementById(id);
-    var detail = document.getElementById(detailId);
+    var list = document.getElementById(listId);
 
     document.getElementById(countId).textContent =
       rows.length.toLocaleString() + (rows.length === 1 ? " property" : " properties");
 
-    // The address string already ends with the suburb name (NSW format), so
-    // the option label only adds postcode and value, not the suburb again.
-    var opts = '<option value="">Choose an address&hellip;</option>';
+    if (!rows.length) {
+      list.innerHTML = '<div class="empty">No properties in this band.</div>';
+      return rows;
+    }
+
+    var html = "";
     for (var i = 0; i < rows.length; i++) {
       var d = rows[i];
-      opts += '<option value="' + i + '">' + esc(d[A]) +
-        (d[PC] ? ' ' + esc(d[PC]) : '') + ' — ' + fmtMoney(d[VAL]) + '</option>';
-    }
-    sel.innerHTML = opts;
-
-    function render() {
-      var i = sel.value;
-      if (i === "") {
-        detail.innerHTML = '<div class="empty">Pick an address above to see its details.</div>';
-        return;
-      }
-      var d = rows[+i];
       var cd = COND[d[CD]] || COND[5];
       var age = d[YR] ? (THIS_YEAR - d[YR]) : null;
-      var contact = d[CT] ? '<div class="jobrow">' + d[CT] + '</div>' : '';
-      detail.innerHTML =
+      var contact = d[CT] ? '<span>' + d[CT] + '</span>' : '';
+      html += '<div class="jobitem">' +
         '<span class="addr">' + esc(d[A]) + '</span>' +
         '<div class="jobrow">' +
           '<span>' + esc(d[SUB]) + (d[PC] ? ' ' + esc(d[PC]) : '') + '</span>' +
@@ -65,16 +54,16 @@ JS = r"""
           '<span>Score ' + d[SC] + '</span>' +
           '<a class="maplink" target="_blank" rel="noopener" href="https://www.google.com/maps/search/?api=1&query=' +
             d[LAT] + ',' + d[LON] + '">map</a>' +
-        '</div>' + contact;
+          contact +
+        '</div></div>';
     }
-    sel.addEventListener("change", render);
-    render();
+    list.innerHTML = html;
 
     return rows;
   }
 
-  var rowsHi = band("band-8m", "jobs-8m", "count-8m", "detail-8m");
-  var rowsMid = band("band-4-8m", "jobs-4-8m", "count-4-8m", "detail-4-8m");
+  var rowsHi = band("jobs-8m", "count-8m", "list-8m");
+  var rowsMid = band("jobs-4-8m", "count-4-8m", "list-4-8m");
 
   function wireCopy(btnId, rows) {
     document.getElementById(btnId).addEventListener("click", function () {

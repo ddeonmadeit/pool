@@ -179,10 +179,7 @@ def build_maillist(leads):
       <span class="spacer"></span>
       <button type="button" class="key" id="copy-8m">Copy all addresses</button>
     </div>
-    <div style="padding:16px 18px;">
-      <select id="band-8m" aria-label="Property, 8 million and up"></select>
-      <div class="jobdetail" id="detail-8m"></div>
-    </div>
+    <div class="joblist" id="list-8m"></div>
   </div>
 
   <div class="well job-well">
@@ -192,10 +189,7 @@ def build_maillist(leads):
       <span class="spacer"></span>
       <button type="button" class="key" id="copy-4-8m">Copy all addresses</button>
     </div>
-    <div style="padding:16px 18px;">
-      <select id="band-4-8m" aria-label="Property, 4 to 8 million"></select>
-      <div class="jobdetail" id="detail-4-8m"></div>
-    </div>
+    <div class="joblist" id="list-4-8m"></div>
   </div>
 
 </div>
@@ -204,11 +198,11 @@ def build_maillist(leads):
   Pulled from the same <b>mail-ready</b> set as Pool Finder &mdash; every check
   behind the address (age, condition, parcel and official address-point
   match) already came back clean; this page only re-sorts that set into two
-  value bands for working through highest-value prospects first. Each
-  dropdown carries one entry per address, sorted best-score-first, with no
-  duplicates and no overlap between the two bands. <b>Est. value</b> comes
-  from the NSW Valuer General's land value scaled by suburb sale ratios -
-  treat it as a shortlisting filter, not a number to quote back to an owner.
+  value bands for working through highest-value prospects first. Each list
+  carries one entry per address, sorted best-score-first, with no duplicates
+  and no overlap between the two bands. <b>Est. value</b> comes from the NSW
+  Valuer General's land value scaled by suburb sale ratios - treat it as a
+  shortlisting filter, not a number to quote back to an owner.
 </footer>
 </div>
 
